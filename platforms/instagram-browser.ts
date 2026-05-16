@@ -95,6 +95,11 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       }
       await page.waitForTimeout(2000);
 
+      // Wait for the upload dialog to render before triggering file chooser
+      await page.locator("button").filter({ hasText: /select from (computer|device)/i }).first()
+        .waitFor({ state: "visible", timeout: 15000 }).catch(() => {
+          log(ROLE, "warn", "Select-from-computer button not found in time — trying anyway");
+        });
       // Open file chooser via Playwright locator (not page.evaluate — won't trigger file dialog)
       const [fileChooser] = await Promise.all([
         page.waitForEvent("filechooser", { timeout: 15000 }),
@@ -103,6 +108,8 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       await fileChooser.setFiles(path.resolve(mediaPath));
       log(ROLE, "info", "Video selected — waiting for Reel editor");
       await page.waitForTimeout(8000);
+      await page.screenshot({ path: `company/post-images/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
+      log(ROLE, "info", "Post-video-select screenshot saved");
 
       // Dismiss "This will be posted as a Reel / Learn more" OK dialog if shown
       const okBtn = page.locator("button").filter({ hasText: /^ok$/i }).first();
@@ -113,19 +120,33 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       }
 
       // Step through wizard until caption field appears (crop → trim → filters → caption)
-      // CI runners can be slower — allow up to 8 steps with longer waits
+      // CI runners can be slower — allow up to 10 steps with longer waits
       const captionLocator = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
-      for (let step = 0; step < 8; step++) {
+      for (let step = 0; step < 10; step++) {
         if (await captionLocator.isVisible().catch(() => false)) break;
+        // Log visible buttons at each step for diagnostics
+        const visibleBtns = await page.evaluate(() =>
+          Array.from(document.querySelectorAll("button, [role='button']"))
+            .filter(el => (el as HTMLElement).offsetParent !== null)
+            .map(el => el.textContent?.trim())
+            .filter(t => t && t.length < 30)
+            .slice(0, 10)
+        ).catch(() => [] as string[]);
+        log(ROLE, "info", `Wizard step ${step + 1} — visible buttons: ${visibleBtns.join(", ")}`);
         const nxt = page.locator("button, div[role='button']").filter({ hasText: /^next$/i }).first();
         const nxtVisible = await nxt.isVisible({ timeout: 4000 }).catch(() => false);
         if (nxtVisible) {
           await nxt.click({ force: true });
-          log(ROLE, "info", `Instagram wizard step ${step + 1}`);
-          await page.waitForTimeout(3500);
+          log(ROLE, "info", `Clicked Next at wizard step ${step + 1}`);
+          await page.waitForTimeout(4000);
         } else {
           await page.waitForTimeout(3000);
         }
+      }
+      // Diagnostic screenshot if caption still not visible
+      if (!await captionLocator.isVisible().catch(() => false)) {
+        await page.screenshot({ path: `company/post-images/debug-ig-no-caption-${Date.now()}.png` }).catch(() => {});
+        log(ROLE, "warn", "Caption field not found after 10 wizard steps — screenshot saved");
       }
 
     } else {

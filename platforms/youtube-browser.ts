@@ -194,6 +194,18 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
     await page.locator("ytcp-uploads-dialog ytcp-button").filter({ hasText: /^next$/i }).first().click({ force: true });
     await page.waitForTimeout(2000);
 
+    // ── Dismiss "Reuse video details?" dialog if shown ───────────────────────────────────────────
+    // YouTube CI sometimes shows this dialog between Checks and Visibility, hiding the Publish button
+    {
+      const reuseDismiss = page.locator("ytcp-button, tp-yt-paper-button, button")
+        .filter({ hasText: /^dismiss$/i }).first();
+      if (await reuseDismiss.isVisible({ timeout: 4000 }).catch(() => false)) {
+        await reuseDismiss.click({ force: true });
+        log(ROLE, "info", "Dismissed 'Reuse video details?' dialog");
+        await page.waitForTimeout(1500);
+      }
+    }
+
     // ── Visibility step — wait for it to actually render ─────────────────────────────────────────
     log(ROLE, "info", "Visibility step — waiting for Public radio to appear...");
     // Wait for the done-button (#done-button) to become visible (proves we're on Visibility step)
