@@ -99,34 +99,24 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
 
       let reelClicked = false;
 
-      // Strategy 1: "Reel" option specifically in create dropdown (href="#" links, not nav links)
-      // Instagram create dropdown items have href="#" — nav items have full URLs
+      // Strategy 1: "Reel" option in create dropdown (href="#" links, NOT nav links which have full URLs)
+      // On some account types Instagram shows a Reel creation option directly in the dropdown
       const dropdownReel = page.locator("a[href='#'], a[href='https://www.instagram.com/#']")
         .filter({ hasText: /reel/i }).first();
-      if (await dropdownReel.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await dropdownReel.isVisible({ timeout: 4000 }).catch(() => false)) {
         await dropdownReel.click({ force: true });
         log(ROLE, "info", "Clicked Reel (dropdown href=#)");
         reelClicked = true;
       }
 
-      // Strategy 2: "Reel" by aria-label in the dropdown
+      // Strategy 2: "Post" option from the create dropdown
+      // The create dropdown shows "PostPost" (text duplicated: icon-label + text-label).
+      // Instagram converts videos uploaded via Post to Reels automatically (standalone video posts deprecated).
+      // We use .last() to get "PostPost" rather than "New postCreate" (the create button itself)
       if (!reelClicked) {
-        const reelAria = page.locator("[aria-label*='reel' i]").first();
-        if (await reelAria.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await reelAria.click({ force: true });
-          log(ROLE, "info", "Clicked Reel (aria-label)");
-          reelClicked = true;
-        }
-      }
-
-      // Strategy 3: "Post" option from the create dropdown — when Reel isn't available,
-      // Instagram treats videos uploaded via Post as Reels (since standalone video posts are deprecated)
-      if (!reelClicked) {
-        log(ROLE, "warn", "Reel option not found in create dropdown — using PostPost option");
-        // "PostPost" is the create dropdown's Post option (text duplicated due to icon+label HTML)
-        // IMPORTANT: look only in href="#" elements so we don't click the nav Create button again
+        log(ROLE, "warn", "Reel not in dropdown — clicking Post (Instagram auto-converts video to Reel)");
         const postDropdown = page.locator("a[href='#'], a[href='https://www.instagram.com/#']")
-          .filter({ hasText: /post/i }).last();  // last to avoid the Create button itself
+          .filter({ hasText: /post/i }).last();
         if (await postDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
           await postDropdown.click({ force: true });
           log(ROLE, "info", "Clicked PostPost from create dropdown");
@@ -175,17 +165,23 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
         log(ROLE, "info", "Video selected via hidden file input");
         fileSelected = true;
       }
-      log(ROLE, "info", "Video selected — waiting for Reel editor");
+      log(ROLE, "info", "Video selected — waiting for editor to load");
       await page.waitForTimeout(8000);
       await page.screenshot({ path: `logs/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
       log(ROLE, "info", "Post-video-select screenshot saved");
 
-      // Dismiss "This will be posted as a Reel / Learn more" OK dialog if shown
-      const okBtn = page.locator("button").filter({ hasText: /^ok$/i }).first();
-      if (await okBtn.isVisible().catch(() => false)) {
-        await okBtn.click({ force: true });
-        log(ROLE, "info", "Dismissed Reels info dialog");
-        await page.waitForTimeout(1000);
+      // Handle dialogs that may appear after video selection:
+      // 1. "This will be posted as a Reel" → OK
+      // 2. "Share as Reel?" → Continue / Share as Reel
+      // 3. "OK" confirmation
+      for (const textPat of [/^ok$/i, /share as reel/i, /continue/i, /^yes$/i]) {
+        const btn = page.locator("button").filter({ hasText: textPat }).first();
+        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await btn.click({ force: true });
+          log(ROLE, "info", `Dismissed post-select dialog: "${textPat}"`);
+          await page.waitForTimeout(1000);
+          break;
+        }
       }
 
       // Step through wizard until caption field appears (crop → trim → filters → caption)
