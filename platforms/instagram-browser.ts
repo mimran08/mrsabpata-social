@@ -77,38 +77,82 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       if (!jsClicked) throw new Error("Could not find Instagram Create button — UI may have changed");
       log(ROLE, "info", "Create button clicked via JS fallback");
     }
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
 
     if (isVideo) {
       // ── Reel upload flow ──────────────────────────────────────────────────────
-      // Wait up to 5s for the create menu to fully animate open before checking for Reel
-      const reelBtn = page.locator("a, span, div[role='button']").filter({ hasText: /^reel$/i }).first();
-      const reelVisible = await reelBtn.isVisible({ timeout: 5000 }).catch(() => false);
-      if (reelVisible) {
-        await reelBtn.click();
-        log(ROLE, "info", "Clicked Reel (menu button)");
-      } else {
-        // Try JS force-click: finds Reel even if CSS opacity/transform animation not complete
-        const jsReelFound = await page.evaluate(() => {
-          const candidates = Array.from(document.querySelectorAll("a, span, [role='button'], button"));
-          const reel = candidates.find(el => /^reel$/i.test(el.textContent?.trim() || ""));
+      // Diagnostic: log all visible links/buttons in the create menu to understand what's shown on CI
+      await page.screenshot({ path: `logs/debug-ig-create-menu-${Date.now()}.png` }).catch(() => {});
+      const menuItems = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("a, [role='menuitem'], [role='option']"))
+          .filter(el => (el as HTMLElement).offsetParent !== null)
+          .map(el => ({
+            text: el.textContent?.trim().slice(0, 40),
+            href: (el as HTMLAnchorElement).href || "",
+            aria: el.getAttribute("aria-label") || ""
+          }))
+          .filter(i => i.text || i.href || i.aria)
+          .slice(0, 20);
+      }).catch(() => [] as { text: string; href: string; aria: string }[]);
+      log(ROLE, "info", `Create menu items: ${JSON.stringify(menuItems)}`);
+
+      // Try to find Reel option — check text (loose match), href, and aria-label
+      let reelClicked = false;
+
+      // Strategy 1: Visible locator with loose text match (not strict ^reel$)
+      const reelByText = page.locator("a, span, div[role='button'], [role='menuitem']")
+        .filter({ hasText: /reel/i }).first();
+      if (await reelByText.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await reelByText.click({ force: true });
+        log(ROLE, "info", "Clicked Reel (text match)");
+        reelClicked = true;
+      }
+
+      // Strategy 2: Link with "reel" in href
+      if (!reelClicked) {
+        const reelByHref = page.locator("a[href*='reel']").first();
+        if (await reelByHref.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await reelByHref.click({ force: true });
+          log(ROLE, "info", "Clicked Reel (href match)");
+          reelClicked = true;
+        }
+      }
+
+      // Strategy 3: JS force-click any element mentioning "reel"
+      if (!reelClicked) {
+        const jsFound = await page.evaluate(() => {
+          const candidates = Array.from(document.querySelectorAll("a, span, [role='button'], button, [role='menuitem']"));
+          const reel = candidates.find(el => /reel/i.test(el.textContent?.trim() || "") || /reel/i.test((el as HTMLAnchorElement).href || ""));
           if (reel) { (reel as HTMLElement).click(); return true; }
           return false;
         }).catch(() => false);
-        if (jsReelFound) {
-          log(ROLE, "info", "Clicked Reel via JS force-click (CSS-invisible)");
-        } else {
-          // Navigate directly to Reel creator — "Post" dialog rejects video on Linux/WebKit
-          log(ROLE, "warn", "Reel button not found — navigating directly to /reels/create/");
-          await page.goto("https://www.instagram.com/reels/create/", {
-            waitUntil: "domcontentloaded", timeout: 30000
-          });
-          await page.waitForTimeout(3000);
-          if (page.url().includes("/accounts/login")) {
-            throw new Error("Instagram session expired — re-extract cookies");
+        if (jsFound) {
+          log(ROLE, "info", "Clicked Reel via JS (text or href)");
+          reelClicked = true;
+        }
+      }
+
+      if (!reelClicked) {
+        log(ROLE, "warn", "Reel option not found in create menu — trying direct navigation");
+        // Try multiple candidate URLs for Instagram's Reel upload
+        const reelUrls = [
+          "https://www.instagram.com/reels/upload/",
+          "https://www.instagram.com/create/reel/",
+          "https://www.instagram.com/create/story/",
+        ];
+        for (const url of reelUrls) {
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+          await page.waitForTimeout(2000);
+          const isNotFound = await page.locator("text=Sorry, this page isn't available").isVisible({ timeout: 1000 }).catch(() => false);
+          if (!isNotFound && !page.url().includes("/accounts/login")) {
+            log(ROLE, "info", `Navigated to Reel via URL: ${url}`);
+            reelClicked = true;
+            break;
           }
-          log(ROLE, "info", "Navigated to /reels/create/ successfully");
-          // Skip the create-menu wait below; we're already at the uploader
+          log(ROLE, "warn", `URL not available: ${url}`);
+        }
+        if (!reelClicked) {
+          throw new Error("Could not find Instagram Reel upload — all URLs failed, UI may have changed");
         }
       }
       await page.waitForTimeout(2500);
