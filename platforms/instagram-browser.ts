@@ -86,8 +86,8 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
     await page.waitForTimeout(2000);
 
     if (isVideo) {
-      // ── Reel upload flow ──────────────────────────────────────────────────────
-      // Diagnostic: screenshot + log create menu contents for CI debugging
+      // ── Reel upload (with CI image fallback) ─────────────────────────────────
+      // Diagnostic: screenshot + log create menu contents
       await page.screenshot({ path: `logs/debug-ig-create-menu-${Date.now()}.png` }).catch(() => {});
       const menuItems = await page.evaluate(() =>
         Array.from(document.querySelectorAll("a, [role='menuitem'], [role='option']"))
@@ -97,121 +97,129 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       ).catch(() => [] as { text: string; href: string }[]);
       log(ROLE, "info", `Create menu: ${JSON.stringify(menuItems)}`);
 
-      let reelClicked = false;
-
-      // Strategy 1: "Reel" option in create dropdown (href="#" links, NOT nav links which have full URLs)
-      // On some account types Instagram shows a Reel creation option directly in the dropdown
+      // Check if Reel is in the create dropdown
       const dropdownReel = page.locator("a[href='#'], a[href='https://www.instagram.com/#']")
         .filter({ hasText: /reel/i }).first();
-      if (await dropdownReel.isVisible({ timeout: 4000 }).catch(() => false)) {
+      const reelAvailable = await dropdownReel.isVisible({ timeout: 4000 }).catch(() => false);
+
+      let actualMediaPath = mediaPath;
+      let useImageFallback = false;
+
+      if (reelAvailable) {
         await dropdownReel.click({ force: true });
         log(ROLE, "info", "Clicked Reel (dropdown href=#)");
-        reelClicked = true;
-      }
+      } else {
+        // CI: Reel not in dropdown — post the static image instead of video.
+        // The static image is always generated alongside the video with the same stem.
+        const imgPath = mediaPath
+          .replace(/post-videos/g, "post-images")
+          .replace(/\.(mp4|mov|avi)$/i, ".png");
+        const imgExists = await fs.access(imgPath).then(() => true).catch(() => false);
+        if (!imgExists) {
+          throw new Error(`Reel option unavailable and no image fallback found at: ${imgPath}`);
+        }
+        actualMediaPath = imgPath;
+        useImageFallback = true;
+        log(ROLE, "warn", `Reel not in dropdown — posting static image: ${path.basename(imgPath)}`);
 
-      // Strategy 2: "Post" option from the create dropdown
-      // The create dropdown shows "PostPost" (text duplicated: icon-label + text-label).
-      // Instagram converts videos uploaded via Post to Reels automatically (standalone video posts deprecated).
-      // We use .last() to get "PostPost" rather than "New postCreate" (the create button itself)
-      if (!reelClicked) {
-        log(ROLE, "warn", "Reel not in dropdown — clicking Post (Instagram auto-converts video to Reel)");
         const postDropdown = page.locator("a[href='#'], a[href='https://www.instagram.com/#']")
           .filter({ hasText: /post/i }).last();
         if (await postDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
           await postDropdown.click({ force: true });
-          log(ROLE, "info", "Clicked PostPost from create dropdown");
-          reelClicked = true;
+          log(ROLE, "info", "Clicked PostPost (image fallback path)");
+        } else {
+          throw new Error("Could not find Post option in Instagram create menu");
         }
-      }
-
-      if (!reelClicked) {
-        throw new Error("Could not find Reel or Post option in Instagram create menu — UI may have changed");
       }
       await page.waitForTimeout(2500);
 
-      // Open file chooser — try multiple button patterns
-      // Modal (via create menu): "Select from computer/device"
-      // Reel creator page (/reels/create/): "Select media", "Upload", "Choose file", etc.
-      const uploadBtnPatterns = [
-        /select from (computer|device)/i,
-        /select (media|video|files?)/i,
-        /upload (video|media|reel|files?)/i,
-        /choose (file|video|media)/i,
-        /^upload$/i,
-      ];
-      let fileSelected = false;
-      for (const pat of uploadBtnPatterns) {
-        const candidate = page.locator("button, [role='button']").filter({ hasText: pat }).first();
-        if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
-          log(ROLE, "info", `Clicking upload button: "${pat}"`);
-          const [fc] = await Promise.all([
-            page.waitForEvent("filechooser", { timeout: 15000 }),
-            candidate.click(),
-          ]);
-          await fc.setFiles(path.resolve(mediaPath));
-          fileSelected = true;
-          break;
-        }
-      }
+      if (useImageFallback) {
+        // ── Image fallback wizard (2 Next clicks: crop → filter → caption) ──────
+        const [fileChooser] = await Promise.all([
+          page.waitForEvent("filechooser", { timeout: 15000 }),
+          page.locator("button").filter({ hasText: /select from (computer|device)/i }).first().click(),
+        ]);
+        await fileChooser.setFiles(path.resolve(actualMediaPath));
+        log(ROLE, "info", "Image selected (fallback) — waiting for crop editor");
+        await page.waitForTimeout(4000);
+        await page.screenshot({ path: `logs/debug-ig-after-img-select-${Date.now()}.png` }).catch(() => {});
 
-      if (!fileSelected) {
-        // Last resort: set file directly on hidden input (works even when button not found)
-        const fileInput = page.locator("input[type='file']").first();
-        await fileInput.setInputFiles(path.resolve(mediaPath)).catch(async () => {
-          log(ROLE, "warn", "Direct file input failed — taking diagnostic screenshot");
-          await page.screenshot({ path: `logs/debug-ig-no-upload-btn-${Date.now()}.png` }).catch(() => {});
-          throw new Error("Could not find any file upload mechanism on Instagram");
-        });
-        log(ROLE, "info", "Video selected via hidden file input");
-        fileSelected = true;
-      }
-      log(ROLE, "info", "Video selected — waiting for editor to load");
-      await page.waitForTimeout(8000);
-      await page.screenshot({ path: `logs/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
-      log(ROLE, "info", "Post-video-select screenshot saved");
+        await clickLocatorButton(page, /^next$/i);
+        await page.waitForTimeout(2000);
 
-      // Handle dialogs that may appear after video selection:
-      // 1. "This will be posted as a Reel" → OK
-      // 2. "Share as Reel?" → Continue / Share as Reel
-      // 3. "OK" confirmation
-      for (const textPat of [/^ok$/i, /share as reel/i, /continue/i, /^yes$/i]) {
-        const btn = page.locator("button").filter({ hasText: textPat }).first();
-        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await btn.click({ force: true });
-          log(ROLE, "info", `Dismissed post-select dialog: "${textPat}"`);
-          await page.waitForTimeout(1000);
-          break;
-        }
-      }
+        await clickLocatorButton(page, /^next$/i);
+        await page.waitForTimeout(2000);
 
-      // Step through wizard until caption field appears (crop → trim → filters → caption)
-      // CI runners can be slower — allow up to 10 steps with longer waits
-      const captionLocator = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
-      for (let step = 0; step < 10; step++) {
-        if (await captionLocator.isVisible().catch(() => false)) break;
-        // Log visible buttons at each step for diagnostics
-        const visibleBtns = await page.evaluate(() =>
-          Array.from(document.querySelectorAll("button, [role='button']"))
-            .filter(el => (el as HTMLElement).offsetParent !== null)
-            .map(el => el.textContent?.trim())
-            .filter(t => t && t.length < 30)
-            .slice(0, 10)
-        ).catch(() => [] as string[]);
-        log(ROLE, "info", `Wizard step ${step + 1} — visible buttons: ${visibleBtns.join(", ")}`);
-        const nxt = page.locator("button, div[role='button']").filter({ hasText: /^next$/i }).first();
-        const nxtVisible = await nxt.isVisible({ timeout: 4000 }).catch(() => false);
-        if (nxtVisible) {
-          await nxt.click({ force: true });
-          log(ROLE, "info", `Clicked Next at wizard step ${step + 1}`);
-          await page.waitForTimeout(4000);
-        } else {
-          await page.waitForTimeout(3000);
+      } else {
+        // ── Video/Reel wizard (Mac path) ─────────────────────────────────────────
+        const uploadBtnPatterns = [
+          /select from (computer|device)/i,
+          /select (media|video|files?)/i,
+          /upload (video|media|reel|files?)/i,
+          /choose (file|video|media)/i,
+          /^upload$/i,
+        ];
+        let fileSelected = false;
+        for (const pat of uploadBtnPatterns) {
+          const candidate = page.locator("button, [role='button']").filter({ hasText: pat }).first();
+          if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
+            log(ROLE, "info", `Clicking upload button: "${pat}"`);
+            const [fc] = await Promise.all([
+              page.waitForEvent("filechooser", { timeout: 15000 }),
+              candidate.click(),
+            ]);
+            await fc.setFiles(path.resolve(actualMediaPath));
+            fileSelected = true;
+            break;
+          }
         }
-      }
-      // Diagnostic screenshot if caption still not visible
-      if (!await captionLocator.isVisible().catch(() => false)) {
-        await page.screenshot({ path: `logs/debug-ig-no-caption-${Date.now()}.png` }).catch(() => {});
-        log(ROLE, "warn", "Caption field not found after 10 wizard steps — screenshot saved");
+        if (!fileSelected) {
+          const fileInput = page.locator("input[type='file']").first();
+          await fileInput.setInputFiles(path.resolve(actualMediaPath)).catch(async () => {
+            await page.screenshot({ path: `logs/debug-ig-no-upload-btn-${Date.now()}.png` }).catch(() => {});
+            throw new Error("Could not find any file upload mechanism on Instagram");
+          });
+          log(ROLE, "info", "Video selected via hidden file input");
+        }
+        log(ROLE, "info", "Video selected — waiting for editor to load");
+        await page.waitForTimeout(8000);
+        await page.screenshot({ path: `logs/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
+
+        for (const textPat of [/^ok$/i, /share as reel/i, /continue/i, /^yes$/i]) {
+          const btn = page.locator("button").filter({ hasText: textPat }).first();
+          if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await btn.click({ force: true });
+            log(ROLE, "info", `Dismissed post-select dialog: "${textPat}"`);
+            await page.waitForTimeout(1000);
+            break;
+          }
+        }
+
+        // Step through wizard until caption field appears (crop → trim → filters → caption)
+        const captionLocator = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
+        for (let step = 0; step < 10; step++) {
+          if (await captionLocator.isVisible().catch(() => false)) break;
+          const visibleBtns = await page.evaluate(() =>
+            Array.from(document.querySelectorAll("button, [role='button']"))
+              .filter(el => (el as HTMLElement).offsetParent !== null)
+              .map(el => el.textContent?.trim())
+              .filter(t => t && t.length < 30)
+              .slice(0, 10)
+          ).catch(() => [] as string[]);
+          log(ROLE, "info", `Wizard step ${step + 1} — visible buttons: ${visibleBtns.join(", ")}`);
+          const nxt = page.locator("button, div[role='button']").filter({ hasText: /^next$/i }).first();
+          if (await nxt.isVisible({ timeout: 4000 }).catch(() => false)) {
+            await nxt.click({ force: true });
+            log(ROLE, "info", `Clicked Next at wizard step ${step + 1}`);
+            await page.waitForTimeout(4000);
+          } else {
+            await page.waitForTimeout(3000);
+          }
+        }
+        if (!await captionLocator.isVisible().catch(() => false)) {
+          await page.screenshot({ path: `logs/debug-ig-no-caption-${Date.now()}.png` }).catch(() => {});
+          log(ROLE, "warn", "Caption field not found after 10 wizard steps — screenshot saved");
+        }
       }
 
     } else {
