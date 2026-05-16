@@ -194,15 +194,18 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
     await page.locator("ytcp-uploads-dialog ytcp-button").filter({ hasText: /^next$/i }).first().click({ force: true });
     await page.waitForTimeout(2000);
 
-    // ── Dismiss "Reuse video details?" dialog if shown ───────────────────────────────────────────
-    // YouTube CI sometimes shows this dialog between Checks and Visibility, hiding the Publish button
-    {
+    // ── Dismiss "Reuse video details?" dialog — loop up to 5 times ──────────────────────────────
+    // This dialog can appear TWICE on CI: once after Checks, and again at the Visibility step.
+    // We loop to catch both occurrences before proceeding.
+    for (let i = 0; i < 5; i++) {
       const reuseDismiss = page.locator("ytcp-button, tp-yt-paper-button, button")
         .filter({ hasText: /^dismiss$/i }).first();
-      if (await reuseDismiss.isVisible({ timeout: 4000 }).catch(() => false)) {
+      if (await reuseDismiss.isVisible({ timeout: 3000 }).catch(() => false)) {
         await reuseDismiss.click({ force: true });
-        log(ROLE, "info", "Dismissed 'Reuse video details?' dialog");
-        await page.waitForTimeout(1500);
+        log(ROLE, "info", `Dismissed 'Reuse video details?' dialog (attempt ${i + 1})`);
+        await page.waitForTimeout(2000);
+      } else {
+        break;
       }
     }
 
@@ -213,6 +216,17 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
       const done = document.querySelector("ytcp-uploads-dialog #done-button");
       return done ? !done.hasAttribute("hidden") : false;
     }, { timeout: 15000 }).catch(() => log(ROLE, "warn", "done-button not visible yet — proceeding anyway"));
+
+    // Final dismiss check: "Reuse details" may still be blocking at the Visibility step
+    {
+      const reuseDismiss = page.locator("ytcp-button, tp-yt-paper-button, button")
+        .filter({ hasText: /^dismiss$/i }).first();
+      if (await reuseDismiss.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await reuseDismiss.click({ force: true });
+        log(ROLE, "info", "Dismissed 'Reuse video details?' at Visibility step (final check)");
+        await page.waitForTimeout(2000);
+      }
+    }
     await page.waitForTimeout(1000);
 
     // Click the PUBLIC radio — try multiple selectors since YouTube UI changes occasionally

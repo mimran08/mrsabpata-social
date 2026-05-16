@@ -81,19 +81,30 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
 
     if (isVideo) {
       // ── Reel upload flow ──────────────────────────────────────────────────────
-      // Try clicking "Reel" in expanded create menu
+      // Wait up to 5s for the create menu to fully animate open before checking for Reel
       const reelBtn = page.locator("a, span, div[role='button']").filter({ hasText: /^reel$/i }).first();
-      const reelVisible = await reelBtn.isVisible().catch(() => false);
+      const reelVisible = await reelBtn.isVisible({ timeout: 5000 }).catch(() => false);
       if (reelVisible) {
         await reelBtn.click();
         log(ROLE, "info", "Clicked Reel");
       } else {
-        // Fallback: "Post" — Instagram auto-detects vertical MP4 as Reel
-        log(ROLE, "warn", "Reel button not found — trying Post (Instagram auto-detects video)");
-        const postBtn = page.locator("a, span, div[role='button']").filter({ hasText: /^post$/i }).first();
-        await postBtn.click().catch(() => {});
+        // Try JS force-click even if CSS says not visible (handles opacity animations)
+        const jsReelFound = await page.evaluate(() => {
+          const candidates = Array.from(document.querySelectorAll("a, span, [role='button']"));
+          const reel = candidates.find(el => /^reel$/i.test(el.textContent?.trim() || ""));
+          if (reel) { (reel as HTMLElement).click(); return true; }
+          return false;
+        }).catch(() => false);
+        if (jsReelFound) {
+          log(ROLE, "info", "Clicked Reel via JS force-click (was not CSS-visible)");
+        } else {
+          // Last resort: Post path — Instagram may auto-detect video and route to Reel wizard
+          log(ROLE, "warn", "Reel button not found — trying Post (Instagram auto-detects video)");
+          const postBtn = page.locator("a, span, div[role='button']").filter({ hasText: /^post$/i }).first();
+          await postBtn.click().catch(() => {});
+        }
       }
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(2500);
 
       // Wait for the upload dialog to render before triggering file chooser
       await page.locator("button").filter({ hasText: /select from (computer|device)/i }).first()
