@@ -113,17 +113,42 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       }
       await page.waitForTimeout(2500);
 
-      // Wait for the upload dialog to render before triggering file chooser
-      await page.locator("button").filter({ hasText: /select from (computer|device)/i }).first()
-        .waitFor({ state: "visible", timeout: 15000 }).catch(() => {
-          log(ROLE, "warn", "Select-from-computer button not found in time — trying anyway");
+      // Open file chooser — try multiple button patterns
+      // Modal (via create menu): "Select from computer/device"
+      // Reel creator page (/reels/create/): "Select media", "Upload", "Choose file", etc.
+      const uploadBtnPatterns = [
+        /select from (computer|device)/i,
+        /select (media|video|files?)/i,
+        /upload (video|media|reel|files?)/i,
+        /choose (file|video|media)/i,
+        /^upload$/i,
+      ];
+      let fileSelected = false;
+      for (const pat of uploadBtnPatterns) {
+        const candidate = page.locator("button, [role='button']").filter({ hasText: pat }).first();
+        if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
+          log(ROLE, "info", `Clicking upload button: "${pat}"`);
+          const [fc] = await Promise.all([
+            page.waitForEvent("filechooser", { timeout: 15000 }),
+            candidate.click(),
+          ]);
+          await fc.setFiles(path.resolve(mediaPath));
+          fileSelected = true;
+          break;
+        }
+      }
+
+      if (!fileSelected) {
+        // Last resort: set file directly on hidden input (works even when button not found)
+        const fileInput = page.locator("input[type='file']").first();
+        await fileInput.setInputFiles(path.resolve(mediaPath)).catch(async () => {
+          log(ROLE, "warn", "Direct file input failed — taking diagnostic screenshot");
+          await page.screenshot({ path: `logs/debug-ig-no-upload-btn-${Date.now()}.png` }).catch(() => {});
+          throw new Error("Could not find any file upload mechanism on Instagram");
         });
-      // Open file chooser via Playwright locator (not page.evaluate — won't trigger file dialog)
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent("filechooser", { timeout: 15000 }),
-        page.locator("button").filter({ hasText: /select from (computer|device)/i }).first().click(),
-      ]);
-      await fileChooser.setFiles(path.resolve(mediaPath));
+        log(ROLE, "info", "Video selected via hidden file input");
+        fileSelected = true;
+      }
       log(ROLE, "info", "Video selected — waiting for Reel editor");
       await page.waitForTimeout(8000);
       await page.screenshot({ path: `logs/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});

@@ -209,53 +209,44 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
       }
     }
 
-    // ── Visibility step — wait for it to actually render ─────────────────────────────────────────
-    log(ROLE, "info", "Visibility step — waiting for Public radio to appear...");
-    // Wait for the done-button (#done-button) to become visible (proves we're on Visibility step)
-    await page.waitForFunction(() => {
-      const done = document.querySelector("ytcp-uploads-dialog #done-button");
-      return done ? !done.hasAttribute("hidden") : false;
-    }, { timeout: 20000 }).catch(() => log(ROLE, "warn", "done-button not visible yet — proceeding anyway"));
+    // ── Visibility step ───────────────────────────────────────────────────────────────────────────
+    log(ROLE, "info", "Visibility step — setting Public visibility...");
+    // Take a diagnostic screenshot to see current state
+    await page.screenshot({ path: `logs/debug-yt-visibility-${Date.now()}.png` }).catch(() => {});
 
-    // If Next is still visible, click through one more time
-    {
-      const nextBtn = page.locator("ytcp-uploads-dialog ytcp-button").filter({ hasText: /^next$/i }).first();
-      if (await nextBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await nextBtn.click({ force: true });
-        log(ROLE, "info", "Clicked one final Next to reach Visibility step");
-        await page.waitForTimeout(2000);
-      }
-    }
-    await page.waitForTimeout(1000);
+    // Wait up to 10s for the page to settle after intermediate steps
+    await page.waitForTimeout(3000);
 
-    // Click the PUBLIC radio — try multiple selectors since YouTube UI changes occasionally
-    const publicSelectors = [
-      "tp-yt-paper-radio-button[name='PUBLIC']",
-      "tp-yt-paper-radio-button[value='PUBLIC']",
-      "#privacy-radios tp-yt-paper-radio-button:first-child",
-    ];
+    // Click PUBLIC radio — use getByRole first (pierces shadow DOM), then CSS selectors
     let pubClicked = false;
-    for (const sel of publicSelectors) {
-      const el = page.locator(sel).first();
-      const box = await el.boundingBox({ timeout: 5000 }).catch(() => null);
-      if (box) {
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(500);
-        pubClicked = true;
-        log(ROLE, "info", `Clicked Public radio via: ${sel}`);
-        break;
+    const radioByRole = page.getByRole("radio", { name: /public/i }).first();
+    if (await radioByRole.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await radioByRole.click({ force: true });
+      pubClicked = true;
+      log(ROLE, "info", "Clicked Public radio (getByRole)");
+    } else {
+      for (const sel of ["tp-yt-paper-radio-button[name='PUBLIC']", "tp-yt-paper-radio-button[value='PUBLIC']", "#privacy-radios tp-yt-paper-radio-button:first-child"]) {
+        const el = page.locator(sel).first();
+        const box = await el.boundingBox({ timeout: 4000 }).catch(() => null);
+        if (box) {
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          pubClicked = true;
+          log(ROLE, "info", `Clicked Public radio via CSS: ${sel}`);
+          break;
+        }
       }
     }
     if (!pubClicked) {
-      log(ROLE, "warn", "Public radio not found by selector — clicking first visibility radio");
-      await page.locator("ytcp-uploads-dialog tp-yt-paper-radio-group tp-yt-paper-radio-button").first().click({ force: true }).catch(() => {});
+      // JS fallback: set aria-checked and dispatch change event
+      await page.evaluate(() => {
+        const radio = Array.from(document.querySelectorAll("tp-yt-paper-radio-button")).find(
+          el => /public/i.test(el.getAttribute("name") || el.getAttribute("value") || el.textContent || "")
+        );
+        if (radio) (radio as HTMLElement).click();
+      });
+      log(ROLE, "warn", "Public radio clicked via JS fallback");
     }
-    await page.waitForTimeout(500);
-
-    const publicSelected = await page.evaluate(() =>
-      document.querySelector("tp-yt-paper-radio-button[name='PUBLIC']")?.getAttribute("aria-checked") === "true"
-    );
-    log(ROLE, "info", publicSelected ? "Public radio confirmed ✓" : "Public radio click attempted (unverified)");
+    await page.waitForTimeout(1000);
 
     // Log visible buttons for debugging
     const btnLabels = await page.evaluate(() => {
@@ -286,33 +277,49 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
       } else break;
     }
 
-    // Wait for Publish (#done-button) to be enabled — retry dismiss loop if still blocked
-    // Use aria-disabled to detect state — inner <button> is in shadow DOM and not accessible via querySelector
-    await page.waitForFunction(() => {
-      const done = document.querySelector("ytcp-uploads-dialog #done-button") as HTMLElement | null;
-      if (!done || done.hasAttribute("hidden")) return false;
-      if (done.getAttribute("aria-disabled") === "true") return false;
-      if (done.hasAttribute("disabled")) return false;
-      return true;
-    }, { timeout: 30000 }).catch(async () => {
-      // Still disabled — try dismissing banners again then wait a bit more
-      log(ROLE, "warn", "Publish still disabled after 30s — re-checking for banners...");
+    // Wait for Publish button to be enabled — check multiple selectors
+    const publishLocators = [
+      page.locator("ytcp-uploads-dialog #done-button"),
+      page.getByRole("button", { name: /^(publish|save)$/i }),
+      page.locator("#done-button"),
+    ];
+    let publishEnabled = false;
+    for (let wait = 0; wait < 4; wait++) {
+      for (const loc of publishLocators) {
+        const enabled = await loc.isEnabled({ timeout: 3000 }).catch(() => false);
+        const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+        if (enabled && visible) { publishEnabled = true; break; }
+      }
+      if (publishEnabled) break;
+      // Dismiss ytcp-banner warnings between retries
       const bannerDismiss = page.locator("ytcp-banner #action-2, ytcp-banner .action-button").first();
       if (await bannerDismiss.isVisible({ timeout: 2000 }).catch(() => false)) {
         await bannerDismiss.click({ force: true });
-        log(ROLE, "info", "Dismissed banner in retry");
-        await page.waitForTimeout(3000);
+        log(ROLE, "info", `Dismissed ytcp-banner (retry ${wait + 1})`);
       }
-      await page.waitForFunction(() => {
-        const done = document.querySelector("ytcp-uploads-dialog #done-button") as HTMLElement | null;
-        if (!done || done.hasAttribute("hidden")) return false;
-        if (done.getAttribute("aria-disabled") === "true") return false;
-        if (done.hasAttribute("disabled")) return false;
-        return true;
-      }, { timeout: 30000 }).catch(() => log(ROLE, "warn", "Publish still disabled after 60s total — clicking anyway"));
-    });
+      await page.waitForTimeout(5000);
+    }
+    if (!publishEnabled) {
+      log(ROLE, "warn", "Publish button not enabled after 4 retries — clicking anyway");
+    }
 
-    await page.locator("ytcp-uploads-dialog #done-button").click({ force: true });
+    // Click Publish — try all locators
+    let publishClicked = false;
+    for (const loc of publishLocators) {
+      if (await loc.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await loc.click({ force: true });
+        publishClicked = true;
+        log(ROLE, "info", "Publish clicked");
+        break;
+      }
+    }
+    if (!publishClicked) {
+      await page.evaluate(() => {
+        const done = document.querySelector("#done-button") as HTMLElement | null;
+        if (done) done.click();
+      });
+      log(ROLE, "warn", "Publish clicked via JS fallback");
+    }
     log(ROLE, "info", "Publish clicked (step 1)");
 
     // Wait for the ytcp-prechecks-warning-dialog to appear (confirmed via debug: this is the confirmation dialog)
