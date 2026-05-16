@@ -735,9 +735,17 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       const hasAPIcreds = process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET && process.env.YOUTUBE_REFRESH_TOKEN;
       try {
         if (hasAPIcreds) {
-          await uploadYouTubeShortAPI(posts.youtube, videoPath);
+          try {
+            await uploadYouTubeShortAPI(posts.youtube, videoPath);
+            log(ROLE, "info", "✅ YouTube: uploaded via API");
+          } catch (apiErr) {
+            log(ROLE, "warn", `YouTube API failed: ${String(apiErr).slice(0, 100)} — trying browser`);
+            await uploadYouTubeShortBrowser(posts.youtube, videoPath);
+            log(ROLE, "info", "✅ YouTube: uploaded via browser");
+          }
         } else {
           await uploadYouTubeShortBrowser(posts.youtube, videoPath);
+          log(ROLE, "info", "✅ YouTube: uploaded via browser");
         }
         log(ROLE, "info", "✅ YouTube: uploaded as Short");
         done.youtube = true;

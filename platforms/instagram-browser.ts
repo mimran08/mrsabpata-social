@@ -113,16 +113,19 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       }
 
       // Step through wizard until caption field appears (crop → trim → filters → caption)
+      // CI runners can be slower — allow up to 8 steps with longer waits
       const captionLocator = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
-      for (let step = 0; step < 5; step++) {
+      for (let step = 0; step < 8; step++) {
         if (await captionLocator.isVisible().catch(() => false)) break;
         const nxt = page.locator("button, div[role='button']").filter({ hasText: /^next$/i }).first();
-        const nxtVisible = await nxt.isVisible().catch(() => false);
+        const nxtVisible = await nxt.isVisible({ timeout: 4000 }).catch(() => false);
         if (nxtVisible) {
           await nxt.click({ force: true });
           log(ROLE, "info", `Instagram wizard step ${step + 1}`);
+          await page.waitForTimeout(3500);
+        } else {
+          await page.waitForTimeout(3000);
         }
-        await page.waitForTimeout(2500);
       }
 
     } else {
@@ -150,7 +153,7 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
     const captionArea = page.locator(
       'textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"], textarea[placeholder*="caption" i], textarea[placeholder*="write" i]'
     ).first();
-    await captionArea.waitFor({ state: "visible", timeout: 20000 });
+    await captionArea.waitFor({ state: "visible", timeout: 45000 });
     log(ROLE, "info", "Caption field visible — typing caption");
     await captionArea.click();
     await page.waitForTimeout(500);
