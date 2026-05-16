@@ -6,12 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent": "npx tsx --env-file=.env.local index.ts",
+    "run-company": "npx tsx --env-file=.env.local index.ts \"run company\"",
+    "sync": "npx tsx --env-file=.env.local index.ts \"sync data\"",
+    "status": "npx tsx --env-file=.env.local index.ts \"company status\"",
+    "scheduler": "npx tsx --env-file=.env.local index.ts \"start scheduler\""
   },
   "dependencies": {
     "next": "16.2.6",
+    "playwright": "^1.60.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

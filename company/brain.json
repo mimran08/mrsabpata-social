@@ -1,0 +1,149 @@
+{
+  "last_updated": "2026-05-11",
+  "channel": {
+    "subscribers": 30800,
+    "views_28d": 564,
+    "watch_time_28d_hours": 18.4,
+    "avg_view_duration_seconds": 22,
+    "ctr": 3.5,
+    "return_viewers_pct": 0.9,
+    "subscribers_watching_pct": 7.5,
+    "monthly_sub_change": -45,
+    "mobile_viewers_pct": 68.9,
+    "bell_notifications_pct": 0.7,
+    "total_views_lifetime": 556535,
+    "video_count": 239
+  },
+  "targets": {
+    "month_3": {
+      "subscribers": 35000,
+      "views_28d": 10000,
+      "avg_view_duration_seconds": 180,
+      "return_viewers_pct": 15,
+      "monthly_sub_change": 300
+    },
+    "month_6": {
+      "subscribers": 50000,
+      "views_28d": 30000
+    },
+    "month_12": {
+      "subscribers": 100000
+    },
+    "final": {
+      "subscribers": 10000000
+    }
+  },
+  "current_focus": "Fix 0:22 avg view duration — hooks must deliver in first sentence",
+  "active_content_pillar": "1",
+  "next_video": {
+    "title": "Sweden visa interview — what they actually ask in 2026",
+    "pillar": "1",
+    "script_status": "ready",
+    "recording_brief_sent": false,
+    "publish_date": ""
+  },
+  "content_pillars": {
+    "1": "Sweden Visa & Immigration",
+    "2": "Jobs & Career in Sweden",
+    "3": "Real Immigrant Stories",
+    "4": "Personal/Faith/Life"
+  },
+  "proven_winners": [
+    {
+      "title": "Sweden Visa Interview: Real Questions + Best Answers",
+      "views": 2178,
+      "comments": 71,
+      "likes": 53,
+      "pillar": "1"
+    },
+    {
+      "title": "How to Find a Job Abroad from Pakistan or India",
+      "views": 3883,
+      "likes": 45,
+      "like_ratio": 93.8,
+      "pillar": "2"
+    },
+    {
+      "title": "Common Job Interview Mistakes & How to Fix Them",
+      "views": 3504,
+      "likes": 38,
+      "like_ratio": 86.4,
+      "pillar": "2"
+    },
+    {
+      "title": "The Failure That Led Me Back to Faith (My Story)",
+      "views": 3750,
+      "likes": 41,
+      "like_ratio": 91.1,
+      "pillar": "4"
+    },
+    {
+      "title": "Rizwan's Move to Sweden: Visa Path, First 30 Days",
+      "views": 4293,
+      "likes": 40,
+      "like_ratio": 81.6,
+      "pillar": "3"
+    }
+  ],
+  "banned_content": [
+    "product reviews",
+    "off-niche topics with no Sweden/Pakistan angle",
+    "chaotic news-channel thumbnails with red stamps and yellow urgent text",
+    "generic motivational content",
+    "anything that breaks the viewer's expectation of immigration/career content"
+  ],
+  "active_series": [],
+  "last_performance_audit": {
+    "date": "2026-05-11",
+    "video_title": "Mr. Visa Guarantee 😂 | Sabko Visa Dilwaay Ga – No IELTS, No Degree!",
+    "ctr": 0,
+    "avg_view_duration": "0:00",
+    "return_viewers_pct": 0,
+    "diagnosis": "Performing within expected range.",
+    "next_action": ""
+  },
+  "weekly_memo_log": [],
+  "decisions_log": [],
+  "recent_videos": [
+    {
+      "title": "Mr. Visa Guarantee 😂 | Sabko Visa Dilwaay Ga – No IELTS, No Degree!",
+      "views": 2280,
+      "likes": 15,
+      "comments": 2,
+      "duration_seconds": 291,
+      "published_at": "2025-11-03"
+    },
+    {
+      "title": "From Karachi 🇵🇰 to Stockholm 🇸🇪 | Ahsan Ayaz on Angular, Tech Jobs in Sweden &amp; Life Abroad",
+      "views": 1889,
+      "likes": 8,
+      "comments": 2,
+      "duration_seconds": 5253,
+      "published_at": "2025-09-11"
+    },
+    {
+      "title": "Love Talking? Build a Career in IT Sales &amp; Consulting | IT Career Ep. 4",
+      "views": 2021,
+      "likes": 9,
+      "comments": 1,
+      "duration_seconds": 583,
+      "published_at": "2025-09-05"
+    },
+    {
+      "title": "Born to Organize? Project Manager May Be Your IT Career | Ep. 3",
+      "views": 2150,
+      "likes": 4,
+      "comments": 2,
+      "duration_seconds": 392,
+      "published_at": "2025-09-03"
+    },
+    {
+      "title": "Hate Coding? IT Support &amp; Networking Careers Explained | IT Career Ep. 2",
+      "views": 2000,
+      "likes": 6,
+      "comments": 0,
+      "duration_seconds": 462,
+      "published_at": "2025-09-01"
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+name: Evening Post (6pm Stockholm)
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # 16:00 UTC = 18:00 Stockholm (CEST/UTC+2 summer)
+  workflow_dispatch:        # manual trigger from GitHub UI
+
+jobs:
+  post:
+    name: Post to all platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      DISPLAY: ':99'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install system packages (FFmpeg + Xvfb + Playwright deps)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y ffmpeg xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps webkit chromium
+
+      - name: Start virtual display (Xvfb)
+        run: |
+          Xvfb :99 -screen 0 1280x960x24 -ac &
+          sleep 2
+          echo "Virtual display started on :99"
+
+      - name: Restore platform sessions
+        env:
+          INSTAGRAM_COOKIES: ${{ secrets.INSTAGRAM_COOKIES }}
+          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          YOUTUBE_SESSION: ${{ secrets.YOUTUBE_SESSION }}
+          X_COOKIES: ${{ secrets.X_COOKIES }}
+        run: |
+          mkdir -p company
+          echo "$INSTAGRAM_COOKIES" | base64 -d | gunzip > company/instagram-cookies.json
+          echo "$TIKTOK_COOKIES"    | base64 -d | gunzip > company/tiktok-cookies.json
+          echo "$YOUTUBE_COOKIES"   | base64 -d | gunzip > company/youtube-cookies.json
+          echo "$YOUTUBE_SESSION"   | base64 -d | gunzip > company/youtube-session.json
+          echo "$X_COOKIES"         | base64 -d | gunzip > company/x-cookies.json
+          echo "Sessions restored."
+
+      - name: Create .env.local
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_BUSINESS_ACCOUNT_ID: ${{ secrets.INSTAGRAM_BUSINESS_ACCOUNT_ID }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TIMEZONE: Europe/Stockholm
+          CHANNEL_NAME: MrSabPata
+          OWNER_NAME: Imran
+        run: |
+          python3 - << 'PYEOF'
+          import os
+          keys = [
+            'GROQ_API_KEY','YOUTUBE_API_KEY','YOUTUBE_CHANNEL_ID',
+            'YOUTUBE_CLIENT_ID','YOUTUBE_CLIENT_SECRET','YOUTUBE_REFRESH_TOKEN',
+            'X_API_KEY','X_API_SECRET','X_ACCESS_TOKEN','X_ACCESS_TOKEN_SECRET','X_BEARER_TOKEN',
+            'TIKTOK_CLIENT_KEY','TIKTOK_CLIENT_SECRET','TIKTOK_ACCESS_TOKEN',
+            'INSTAGRAM_ACCESS_TOKEN','INSTAGRAM_BUSINESS_ACCOUNT_ID',
+            'ELEVENLABS_API_KEY','TIMEZONE','CHANNEL_NAME','OWNER_NAME',
+          ]
+          with open('.env.local', 'w') as f:
+            for k in keys:
+              v = os.environ.get(k, '')
+              if v:
+                f.write(f'{k}={v}\n')
+          print(f"Wrote {len(keys)} vars to .env.local")
+          PYEOF
+
+      - name: Create output directories
+        run: mkdir -p company/daily-posts company/post-images company/post-videos logs
+
+      - name: Run evening post
+        run: npx tsx --env-file=.env.local index.ts "post evening"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evening-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7

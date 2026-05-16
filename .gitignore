@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Platform sessions — stored as GitHub Secrets on CI
+company/instagram-cookies.json
+company/instagram-session.json
+company/tiktok-cookies.json
+company/tiktok-session.json
+company/youtube-cookies.json
+company/youtube-session.json
+company/x-cookies.json
+company/x-session.json
+
+# Runtime output (generated each run)
+company/daily-posts/
+company/post-images/
+company/post-videos/
+logs/
+dist/
