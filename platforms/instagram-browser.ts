@@ -86,22 +86,29 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       const reelVisible = await reelBtn.isVisible({ timeout: 5000 }).catch(() => false);
       if (reelVisible) {
         await reelBtn.click();
-        log(ROLE, "info", "Clicked Reel");
+        log(ROLE, "info", "Clicked Reel (menu button)");
       } else {
-        // Try JS force-click even if CSS says not visible (handles opacity animations)
+        // Try JS force-click: finds Reel even if CSS opacity/transform animation not complete
         const jsReelFound = await page.evaluate(() => {
-          const candidates = Array.from(document.querySelectorAll("a, span, [role='button']"));
+          const candidates = Array.from(document.querySelectorAll("a, span, [role='button'], button"));
           const reel = candidates.find(el => /^reel$/i.test(el.textContent?.trim() || ""));
           if (reel) { (reel as HTMLElement).click(); return true; }
           return false;
         }).catch(() => false);
         if (jsReelFound) {
-          log(ROLE, "info", "Clicked Reel via JS force-click (was not CSS-visible)");
+          log(ROLE, "info", "Clicked Reel via JS force-click (CSS-invisible)");
         } else {
-          // Last resort: Post path — Instagram may auto-detect video and route to Reel wizard
-          log(ROLE, "warn", "Reel button not found — trying Post (Instagram auto-detects video)");
-          const postBtn = page.locator("a, span, div[role='button']").filter({ hasText: /^post$/i }).first();
-          await postBtn.click().catch(() => {});
+          // Navigate directly to Reel creator — "Post" dialog rejects video on Linux/WebKit
+          log(ROLE, "warn", "Reel button not found — navigating directly to /reels/create/");
+          await page.goto("https://www.instagram.com/reels/create/", {
+            waitUntil: "domcontentloaded", timeout: 30000
+          });
+          await page.waitForTimeout(3000);
+          if (page.url().includes("/accounts/login")) {
+            throw new Error("Instagram session expired — re-extract cookies");
+          }
+          log(ROLE, "info", "Navigated to /reels/create/ successfully");
+          // Skip the create-menu wait below; we're already at the uploader
         }
       }
       await page.waitForTimeout(2500);
@@ -119,7 +126,7 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       await fileChooser.setFiles(path.resolve(mediaPath));
       log(ROLE, "info", "Video selected — waiting for Reel editor");
       await page.waitForTimeout(8000);
-      await page.screenshot({ path: `company/post-images/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
+      await page.screenshot({ path: `logs/debug-ig-after-video-select-${Date.now()}.png` }).catch(() => {});
       log(ROLE, "info", "Post-video-select screenshot saved");
 
       // Dismiss "This will be posted as a Reel / Learn more" OK dialog if shown
@@ -156,7 +163,7 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
       }
       // Diagnostic screenshot if caption still not visible
       if (!await captionLocator.isVisible().catch(() => false)) {
-        await page.screenshot({ path: `company/post-images/debug-ig-no-caption-${Date.now()}.png` }).catch(() => {});
+        await page.screenshot({ path: `logs/debug-ig-no-caption-${Date.now()}.png` }).catch(() => {});
         log(ROLE, "warn", "Caption field not found after 10 wizard steps — screenshot saved");
       }
 
@@ -193,7 +200,7 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
     await page.waitForTimeout(800);
 
     // Debug: screenshot before attempting to click Share
-    await page.screenshot({ path: `company/post-images/debug-ig-pre-share-${Date.now()}.png` }).catch(() => {});
+    await page.screenshot({ path: `logs/debug-ig-pre-share-${Date.now()}.png` }).catch(() => {});
     log(ROLE, "info", "Pre-share screenshot saved");
 
     // Share button — find the wizard toolbar (the bar that has BOTH Back AND Share).
@@ -291,7 +298,7 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
     if (confirmed) {
       log(ROLE, "info", "Post confirmation received ✓");
     } else {
-      const screenshotPath = `company/post-images/debug-ig-confirm-${Date.now()}.png`;
+      const screenshotPath = `logs/debug-ig-confirm-${Date.now()}.png`;
       await page.screenshot({ path: screenshotPath }).catch(() => {});
       log(ROLE, "warn", `No confirmation after 6 min — screenshot: ${screenshotPath}`);
       throw new Error("Instagram post NOT confirmed — confirmation screen never appeared. Check debug screenshot.");
