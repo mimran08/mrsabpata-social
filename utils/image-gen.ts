@@ -53,6 +53,17 @@ function wrapText(text: string, maxChars: number): string[] {
   return lines;
 }
 
+// Shrinks font until the longest line fits within maxWidth (pixels).
+// charWidthRatio: Arial Black ~0.62, Arial ~0.55. Safe margin already baked in.
+function fitFontSize(lines: string[], maxWidth: number, startSize: number, minSize: number, charWidthRatio = 0.62): number {
+  const longest = Math.max(0, ...lines.map(l => l.length));
+  let size = startSize;
+  while (size > minSize && longest * size * charWidthRatio > maxWidth) {
+    size -= 4;
+  }
+  return size;
+}
+
 function seedFromFilename(filename: string): number {
   let hash = 0;
   for (let i = 0; i < filename.length; i++) {
@@ -106,7 +117,8 @@ function buildTextOverlaySvg(opts: PostImageOptions): string {
   const statLines = wrapText(opts.stat, 20);
   const subtextLines = opts.subtext ? wrapText(opts.subtext, 34) : [];
 
-  const statFontSize = statLines.length <= 2 ? 96 : 76;
+  const startSize = statLines.length <= 2 ? 96 : 76;
+  const statFontSize = fitFontSize(statLines, 940, startSize, 40);
   const statLineHeight = statFontSize * 1.2;
   const statBlockHeight = statLines.length * statLineHeight;
   const subtextFontSize = 36;
@@ -194,7 +206,8 @@ function buildFallbackSvg(opts: PostImageOptions): string {
   const statLines = wrapText(opts.stat, 20);
   const subtextLines = opts.subtext ? wrapText(opts.subtext, 34) : [];
 
-  const statFontSize = statLines.length <= 2 ? 96 : 76;
+  const startSize = statLines.length <= 2 ? 96 : 76;
+  const statFontSize = fitFontSize(statLines, 940, startSize, 40);
   const statLineHeight = statFontSize * 1.2;
   const statBlockHeight = statLines.length * statLineHeight;
   const subtextFontSize = 36;

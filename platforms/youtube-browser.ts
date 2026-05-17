@@ -136,12 +136,18 @@ export async function uploadYouTubeShort(text: string, videoPath: string, _state
     await page.keyboard.type(title, { delay: 10 });
     await page.waitForTimeout(300);
 
-    // Fill description
+    // Fill description — channel has a default "Connect with Me" footer prefilled.
+    // Move cursor to the very start so our content appears on line 1, then add two
+    // newlines so the existing footer stays intact below.
     try {
       const descInput = dialog.locator("#description-textarea #textbox").first();
       await descInput.waitFor({ state: "visible", timeout: 5000 });
       await descInput.click({ force: true });
-      await page.keyboard.type(description, { delay: 5 });
+      await page.waitForTimeout(200);
+      await page.keyboard.press("Meta+Home");
+      await page.keyboard.press("Control+Home");
+      await page.waitForTimeout(150);
+      await page.keyboard.type(description + "\n\n", { delay: 5 });
     } catch { /* non-fatal */ }
     await page.waitForTimeout(300);
 

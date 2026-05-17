@@ -54,45 +54,32 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
 
     const textarea = page.locator('[data-testid="tweetTextarea_0"]').first();
     await textarea.waitFor({ state: "visible", timeout: 20000 });
-    await textarea.click({ force: true });
-    await page.waitForTimeout(800);
 
-    // Strategy 1: execCommand('insertText') — fires React's beforeinput/input chain,
-    // much faster than pressSequentially and avoids per-character timeout issues
-    let typed = "";
-    try {
-      await page.evaluate((t) => {
-        const el = document.querySelector('[data-testid="tweetTextarea_0"]') as HTMLElement;
-        if (el) {
-          el.focus();
-          document.execCommand("selectAll", false);
-          document.execCommand("insertText", false, t);
-        }
-      }, text);
-      await page.waitForTimeout(600);
-      typed = await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
-      if (typed) log(ROLE, "info", `Text entered via execCommand (${typed.length} chars)`);
-    } catch { /* fall through */ }
+    // Verifies typed content roughly matches input — normalizes whitespace and
+    // requires at least 80% of the original length. Prevents posting a garbled
+    // textarea (e.g. only a trailing hashtag) when input reordered/truncated.
+    const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
+    const expected = normalize(text);
+    const goodEnough = (actual: string) => {
+      const a = normalize(actual);
+      if (a.length < expected.length * 0.8) return false;
+      // first 30 chars of expected must appear in actual (catches "only hashtag survived")
+      const head = expected.slice(0, Math.min(30, expected.length));
+      return a.includes(head);
+    };
 
-    // Strategy 2: pressSequentially with higher timeout
-    if (!typed) {
-      log(ROLE, "info", "execCommand missed — trying pressSequentially");
-      try {
-        await textarea.click({ force: true });
-        await page.waitForTimeout(400);
-        await textarea.pressSequentially(text, { delay: 30, timeout: 90000 });
-        await page.waitForTimeout(500);
-        typed = await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
-        if (typed) log(ROLE, "info", `Text entered via pressSequentially (${typed.length} chars)`);
-      } catch (err) {
-        log(ROLE, "warn", `pressSequentially failed: ${String(err).slice(0, 80)}`);
-      }
-    }
+    const clearAndType = async (strategy: "keyboard-type" | "clipboard"): Promise<string> => {
+      await textarea.click({ force: true });
+      await page.waitForTimeout(300);
+      // Clear via real keyboard events so React tracks the change
+      await page.keyboard.press("Meta+a");
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(200);
 
-    // Strategy 3: clipboard paste — fastest, bypasses per-char issues
-    if (!typed) {
-      log(ROLE, "info", "Trying clipboard paste strategy");
-      try {
+      if (strategy === "keyboard-type") {
+        await page.keyboard.type(text, { delay: 8 });
+      } else {
         await page.evaluate((t) => {
           const dt = new DataTransfer();
           dt.setData("text/plain", t);
@@ -102,13 +89,25 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
             el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
           }
         }, text);
-        await page.waitForTimeout(800);
-        typed = await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
-        if (typed) log(ROLE, "info", `Text entered via clipboard paste (${typed.length} chars)`);
-      } catch { /* fall through */ }
-    }
+      }
+      await page.waitForTimeout(600);
+      return await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
+    };
 
-    if (!typed) log(ROLE, "warn", "All text input strategies failed — attempting post anyway");
+    // Primary: real keyboard events (slowest but most React-compatible).
+    let typed = await clearAndType("keyboard-type");
+    if (goodEnough(typed)) {
+      log(ROLE, "info", `Text entered via keyboard.type (${typed.length}/${expected.length} chars)`);
+    } else {
+      log(ROLE, "warn", `keyboard.type produced unexpected text (${typed.length}/${expected.length}) — retrying with clipboard`);
+      typed = await clearAndType("clipboard");
+      if (goodEnough(typed)) {
+        log(ROLE, "info", `Text entered via clipboard (${typed.length}/${expected.length} chars)`);
+      } else {
+        await page.screenshot({ path: `logs/debug-x-text-verify-failed-${Date.now()}.png` }).catch(() => {});
+        throw new Error(`X text input verification failed (got ${typed.length}/${expected.length} chars) — aborting to avoid posting garbled content`);
+      }
+    }
     await page.waitForTimeout(300);
 
     // Attach image
