@@ -194,18 +194,22 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
     await page.locator("ytcp-uploads-dialog ytcp-button").filter({ hasText: /^next$/i }).first().click({ force: true });
     await page.waitForTimeout(2000);
 
-    // ── Navigate through any intermediate steps (e.g. "Reuse video details?") ─────────────────
-    // YouTube CI sometimes inserts a "Reuse video details?" step between Checks and Visibility.
-    // This step has its own "Next" button — clicking it advances to the real Visibility step.
-    // We click Next up to 4 times until no more Next buttons appear.
-    for (let i = 0; i < 4; i++) {
+    // ── Navigate intermediate steps until Public radio is visible ─────────────────────────────
+    // YouTube inserts "Reuse video details?" and other steps between Checks and Visibility.
+    // We loop (max 10) clicking any visible Next button until the Public radio appears.
+    const publicRadioCheck = page.getByRole("radio", { name: /public/i }).first();
+    for (let i = 0; i < 10; i++) {
+      if (await publicRadioCheck.isVisible({ timeout: 2000 }).catch(() => false)) {
+        log(ROLE, "info", `Reached Visibility step after ${i} intermediate Next clicks`);
+        break;
+      }
       const nextBtn = page.locator("ytcp-uploads-dialog ytcp-button").filter({ hasText: /^next$/i }).first();
-      if (await nextBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+      if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await nextBtn.click({ force: true });
-        log(ROLE, "info", `Clicked through intermediate step Next (attempt ${i + 1})`);
+        log(ROLE, "info", `Intermediate Next clicked (attempt ${i + 1})`);
         await page.waitForTimeout(2000);
       } else {
-        break;
+        await page.waitForTimeout(2000); // may be loading
       }
     }
 

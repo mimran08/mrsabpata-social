@@ -42,7 +42,7 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
     log(ROLE, "info", "Compose dialog open");
 
     // Diagnostic screenshot right after load (before any interaction)
-    await page.screenshot({ path: `company/post-images/debug-x-loaded-${Date.now()}.png` }).catch(() => {});
+    await page.screenshot({ path: `logs/debug-x-loaded-${Date.now()}.png` }).catch(() => {});
 
     // Dismiss any cookie/consent overlay using JS (bypasses pointer-events blocking)
     await page.evaluate(() => {
@@ -123,31 +123,41 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
       }
     }
 
-    // Debug screenshot before clicking Post
-    await page.screenshot({ path: `company/post-images/debug-x-pre-post-${Date.now()}.png` }).catch(() => {});
+    // Debug screenshot before submitting
+    await page.screenshot({ path: `logs/debug-x-pre-post-${Date.now()}.png` }).catch(() => {});
 
-    // Click Post button via Playwright locator with force:true — bypasses aria-disabled
-    // X uses aria-disabled (not HTML disabled), so page.evaluate btn.disabled returns false
-    // but click() on aria-disabled does nothing. force:true sends a real pointer event.
-    const postBtn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first();
-    const postBtnVisible = await postBtn.isVisible({ timeout: 10000 }).catch(() => false);
-    if (!postBtnVisible) {
-      // Fallback: find by text
-      const textBtn = page.locator("button").filter({ hasText: /^Post$/ }).first();
-      await textBtn.click({ force: true, timeout: 10000 });
-      log(ROLE, "info", "Clicked Post button (text fallback)");
-    } else {
-      await postBtn.click({ force: true });
-      log(ROLE, "info", "Clicked Post button");
-    }
+    // Submit via keyboard shortcut first — Ctrl+Enter bypasses aria-disabled on the Post button.
+    // X's React onClick handler checks content before submitting; force-clicking an aria-disabled
+    // button sends pointer events but React ignores them. The keyboard shortcut goes through
+    // the textarea's keydown handler which does submit regardless of button state.
+    await textarea.click({ force: true });
+    await page.waitForTimeout(300);
+    await page.keyboard.press("Control+Return");
+    log(ROLE, "info", "Submitted via Control+Return");
 
-    // Wait for compose dialog to close (indicates successful post)
-    await page.waitForTimeout(2000);
-    const dialogGone = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 8000 }).catch(() => false);
+    // Wait for compose dialog to disappear (confirms successful post)
+    const dialogGone = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 10000 }).catch(() => false);
+
     if (!dialogGone) {
-      await page.screenshot({ path: `company/post-images/debug-x-post-sent-${Date.now()}.png` }).catch(() => {});
-      log(ROLE, "warn", "Compose dialog still visible after click — may not have posted");
+      // Keyboard shortcut didn't work — fall back to button click
+      log(ROLE, "info", "Keyboard shortcut unclear — trying Post button click");
+      const postBtn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first();
+      if (await postBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await postBtn.click({ force: true });
+        log(ROLE, "info", "Clicked Post button (fallback)");
+      } else {
+        const textBtn = page.locator("button").filter({ hasText: /^Post$/ }).first();
+        await textBtn.click({ force: true, timeout: 5000 });
+        log(ROLE, "info", "Clicked Post button by text (fallback)");
+      }
+      await page.waitForTimeout(3000);
+      const dialogGone2 = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 8000 }).catch(() => false);
+      if (!dialogGone2) {
+        await page.screenshot({ path: `logs/debug-x-post-failed-${Date.now()}.png` }).catch(() => {});
+        log(ROLE, "warn", "Compose dialog still visible — tweet may not have posted");
+      }
     }
+
     log(ROLE, "info", "Posted to X via browser");
   } finally {
     await browser.close();
