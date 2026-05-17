@@ -53,6 +53,9 @@ jobs:
           echo "$INSTAGRAM_COOKIES" | base64 -d | gunzip > company/instagram-cookies.json
           echo "$TIKTOK_COOKIES"    | base64 -d | gunzip > company/tiktok-cookies.json
           echo "$YOUTUBE_COOKIES"   | base64 -d | gunzip > company/youtube-cookies.json
+          # Always rebuild the session from fresh cookies so it never expires silently.
+          # YOUTUBE_SESSION is the pre-saved session (faster); if it's stale the browser
+          # code retries automatically with youtube-cookies.json.
           echo "$YOUTUBE_SESSION"   | base64 -d | gunzip > company/youtube-session.json
           echo "$X_COOKIES"         | base64 -d | gunzip > company/x-cookies.json
           echo "Sessions restored."

@@ -7,8 +7,9 @@ const ROLE = "YouTube-Browser";
 const SESSION_FILE = path.join("company", "youtube-session.json");
 const COOKIES_FILE = path.join("company", "youtube-cookies.json");
 
-// Uploads a video as a YouTube Short via YouTube Studio (browser automation)
-export async function uploadYouTubeShort(text: string, videoPath: string): Promise<void> {
+// Uploads a video as a YouTube Short via YouTube Studio (browser automation).
+// _stateOverride is used internally when retrying with cookies after a session expiry.
+export async function uploadYouTubeShort(text: string, videoPath: string, _stateOverride?: string): Promise<void> {
   const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
   const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
 
@@ -18,7 +19,9 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
     );
   }
 
-  const storageState = hasSession ? SESSION_FILE : COOKIES_FILE;
+  // Prefer session file; fall back to cookies-only file.
+  // _stateOverride lets an internal retry bypass the session and go straight to cookies.
+  const storageState = _stateOverride ?? (hasSession ? SESSION_FILE : COOKIES_FILE);
 
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
   const title = (lines[0] ?? "MrSabPata").slice(0, 100);
@@ -43,9 +46,12 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
 
     if (page.url().includes("accounts.google.com")) {
       await browser.close();
-      throw new Error(
-        "YouTube Studio session expired — run: npx tsx scripts/save-youtube-session.ts"
-      );
+      // Session expired — automatically retry once with the cookies-only file
+      if (storageState !== COOKIES_FILE && hasCookies) {
+        log(ROLE, "warn", "Session expired — retrying automatically with cookies file");
+        return uploadYouTubeShort(text, videoPath, COOKIES_FILE);
+      }
+      throw new Error("YouTube Studio session expired — re-extract: npx tsx scripts/save-youtube-session.ts");
     }
 
     // Handle "Select a channel" dialog if it appears (account has multiple channels)

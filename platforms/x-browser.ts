@@ -132,8 +132,8 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
     // the textarea's keydown handler which does submit regardless of button state.
     await textarea.click({ force: true });
     await page.waitForTimeout(300);
-    await page.keyboard.press("Control+Return");
-    log(ROLE, "info", "Submitted via Control+Return");
+    await page.keyboard.press("Control+Enter");
+    log(ROLE, "info", "Submitted via Control+Enter");
 
     // Wait for compose dialog to disappear (confirms successful post)
     const dialogGone = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 10000 }).catch(() => false);
