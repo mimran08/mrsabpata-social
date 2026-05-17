@@ -75,11 +75,16 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
       await page.waitForTimeout(500);
     }
 
-    // Fill caption — TikTok Studio uses a Draft.js contenteditable
+    // Fill caption — TikTok Studio uses a Draft.js contenteditable.
+    // TikTok auto-fills the field with the uploaded filename, so we must
+    // select-all and delete before typing the real caption.
     const captionEl = page.locator('[contenteditable="true"]').first();
     await captionEl.waitFor({ state: "visible", timeout: 20000 });
     await captionEl.click({ force: true });
     await page.waitForTimeout(300);
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(100);
     await page.keyboard.type(caption.slice(0, 2200), { delay: 10 });
     await page.waitForTimeout(500);
 
