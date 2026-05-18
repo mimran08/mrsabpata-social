@@ -420,11 +420,16 @@ async function getFromPostBank(session: "morning" | "evening"): Promise<{
   };
 
   const list = bank[session];
-  const idx = bank.last_index[session] % list.length;
+  // Date-based deterministic rotation — CI runs are stateless (workspace writes don't
+  // persist), so an incrementing counter would always start from the same git-tracked
+  // value and pick the same theme every day. Days-since-epoch % list.length cycles
+  // through every entry over `list.length` days without any persisted state.
+  const EPOCH = new Date("2026-01-01").getTime();
+  const dayIndex = Math.floor((Date.now() - EPOCH) / (24 * 60 * 60 * 1000));
+  // Offset evening by half the list so morning/evening pick from different halves
+  const sessionOffset = session === "evening" ? Math.floor(list.length / 2) : 0;
+  const idx = ((dayIndex + sessionOffset) % list.length + list.length) % list.length;
   const post = list[idx];
-
-  bank.last_index[session] = idx + 1;
-  await fs.writeFile(bankPath, JSON.stringify(bank, null, 2), "utf-8");
 
   return {
     ...post,
@@ -533,8 +538,8 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     const bankRaw = await fs.readFile(bankPath, "utf-8").catch(() => null);
     const bank = bankRaw ? JSON.parse(bankRaw) as { last_index: Record<string, number>; morning: unknown[]; evening: unknown[] } : null;
     const bankList = bank?.[session] as Array<{ pillar: string; theme: string; x: string; instagram: string; tiktok: string; youtube: string; stat?: string; subtext?: string }> | undefined;
-    const bankIdx = bank?.last_index[session] ?? 0;
-    const bankHasContent = bankList && bankIdx < bankList.length;
+    // Bank uses date-based deterministic rotation in getFromPostBank — always has content as long as the list is non-empty
+    const bankHasContent = !!bankList && bankList.length > 0;
 
     // Priority 1: news from thelocal.se (primary — always try first when Groq is available)
     if (process.env.GROQ_API_KEY) {
@@ -573,7 +578,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     // Priority 3: post bank (static fallback)
     if (!posts && bankHasContent) {
       try {
-        log(ROLE, "info", `Using post bank (${bankIdx + 1}/${bankList!.length})...`);
+        log(ROLE, "info", `Using post bank (${bankList!.length} themes, date-rotated)...`);
         posts = await getFromPostBank(session);
         source = "bank";
         log(ROLE, "info", `Post bank — Theme: ${posts.theme.slice(0, 60)}`);
