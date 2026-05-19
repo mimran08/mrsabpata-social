@@ -1,0 +1,13 @@
+name = "mrsabpata-cron"
+main = "src/index.ts"
+compatibility_date = "2026-05-19"
+
+# 07:00 UTC = 09:00 Stockholm (CEST), 16:00 UTC = 18:00 Stockholm (CEST)
+# Single entry covering both times — account is at the 5-cron free-tier cap.
+# The scheduled handler picks morning vs evening based on the current UTC hour.
+[triggers]
+crons = ["0 7,16 * * *"]
+
+[vars]
+REPO_OWNER = "mimran08"
+REPO_NAME = "mrsabpata-social"

@@ -1,0 +1,13 @@
+{
+  "name": "mrsabpata-cron",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240821.1",
+    "wrangler": "^4.0.0"
+  }
+}
