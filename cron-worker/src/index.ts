@@ -15,9 +15,11 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Single cron entry "0 7,16 * * *" fires at both 07:00 UTC and 16:00 UTC.
     // Use the firing time's UTC hour to pick which workflow to dispatch.
+    // Use the -mac variants — they run on the self-hosted Mac runner where
+    // X browser (Chrome) actually works. CI WebKit + Xvfb hangs silently for 26+ min.
     const utcHour = new Date(event.scheduledTime).getUTCHours();
-    const workflow = utcHour === 7 ? "morning-post.yml"
-                   : utcHour === 16 ? "evening-post.yml"
+    const workflow = utcHour === 7 ? "morning-post-mac.yml"
+                   : utcHour === 16 ? "evening-post-mac.yml"
                    : null;
 
     if (!workflow) {
@@ -49,8 +51,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const w = url.searchParams.get("w");
-    if (!w || !/^(morning|evening)-post\.yml$/.test(w)) {
-      return new Response("usage: ?w=morning-post.yml or ?w=evening-post.yml", { status: 400 });
+    if (!w || !/^(morning|evening)-post(-mac)?\.yml$/.test(w)) {
+      return new Response("usage: ?w=morning-post-mac.yml or ?w=evening-post-mac.yml (or the cloud variants)", { status: 400 });
     }
     const apiUrl = `https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/actions/workflows/${w}/dispatches`;
     const res = await fetch(apiUrl, {
