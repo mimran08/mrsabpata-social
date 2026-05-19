@@ -9,6 +9,17 @@ const COOKIES_FILE = path.join("company", "x-cookies.json");
 // ─── Post a tweet using the saved Safari session cookies ─────────────────────
 
 export async function postViaBrowser(text: string, imagePath?: string): Promise<void> {
+  // Hard-truncate to 270 chars (X non-Premium limit is 280; leaves a 10-char buffer
+  // for X's URL-weight counting). Tweets over 280 trigger a "Premium required" dialog
+  // that silently breaks the submit flow and can leave a garbled hashtag-only post.
+  if (text.length > 270) {
+    const hashtags = text.match(/#\w+(\s+#\w+)*\s*$/)?.[0] ?? "";
+    const body = text.slice(0, text.length - hashtags.length);
+    const bodyBudget = 270 - hashtags.length - 4; // 4 for "...\n\n"
+    text = body.slice(0, bodyBudget).trimEnd() + "…\n\n" + hashtags.trim();
+    text = text.slice(0, 270);
+  }
+
   // Load cookies extracted from real Safari session
   let storageState: string | undefined;
   try {
@@ -125,35 +136,41 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
     // Debug screenshot before submitting
     await page.screenshot({ path: `logs/debug-x-pre-post-${Date.now()}.png` }).catch(() => {});
 
-    // Submit via keyboard shortcut first — Ctrl+Enter bypasses aria-disabled on the Post button.
-    // X's React onClick handler checks content before submitting; force-clicking an aria-disabled
-    // button sends pointer events but React ignores them. The keyboard shortcut goes through
-    // the textarea's keydown handler which does submit regardless of button state.
+    // Dismiss any open autocomplete/hashtag dropdown — Escape closes it. Without
+    // this, Ctrl+Enter selects an autocomplete suggestion (e.g. #SwedenWorkCulture)
+    // instead of submitting, leaving a corrupted hashtag-only tweet.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
+    // Re-verify textarea content right before submit — autocomplete or image
+    // upload could have modified it after the initial type/verify.
+    const finalContent = await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
+    if (!goodEnough(finalContent)) {
+      await page.screenshot({ path: `logs/debug-x-pre-submit-bad-${Date.now()}.png` }).catch(() => {});
+      throw new Error(`X content corrupted between type and submit (got ${finalContent.length}/${expected.length} chars) — aborting`);
+    }
+    log(ROLE, "info", `Pre-submit content verified (${finalContent.length} chars)`);
+
+    // Click textarea to ensure focus (Escape may have moved focus off)
     await textarea.click({ force: true });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(200);
     await page.keyboard.press("Control+Enter");
     log(ROLE, "info", "Submitted via Control+Enter");
 
-    // Wait for compose dialog to disappear (confirms successful post)
-    const dialogGone = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 10000 }).catch(() => false);
+    // Successful submit navigates to /home or /<username>/status/<id>.
+    // Just checking dialog visibility is unreliable — wait for URL change.
+    const submitOK = await page.waitForURL((u) => !u.toString().includes("/compose"), { timeout: 12000 }).then(() => true).catch(() => false);
 
-    if (!dialogGone) {
-      // Keyboard shortcut didn't work — fall back to button click
-      log(ROLE, "info", "Keyboard shortcut unclear — trying Post button click");
+    if (!submitOK) {
+      log(ROLE, "info", "URL didn't change — trying Post button click fallback");
       const postBtn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first();
-      if (await postBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await postBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await postBtn.click({ force: true });
-        log(ROLE, "info", "Clicked Post button (fallback)");
-      } else {
-        const textBtn = page.locator("button").filter({ hasText: /^Post$/ }).first();
-        await textBtn.click({ force: true, timeout: 5000 });
-        log(ROLE, "info", "Clicked Post button by text (fallback)");
       }
-      await page.waitForTimeout(3000);
-      const dialogGone2 = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isHidden({ timeout: 8000 }).catch(() => false);
-      if (!dialogGone2) {
+      const submitOK2 = await page.waitForURL((u) => !u.toString().includes("/compose"), { timeout: 8000 }).then(() => true).catch(() => false);
+      if (!submitOK2) {
         await page.screenshot({ path: `logs/debug-x-post-failed-${Date.now()}.png` }).catch(() => {});
-        log(ROLE, "warn", "Compose dialog still visible — tweet may not have posted");
+        throw new Error("X post failed — compose dialog still showing after submit attempts");
       }
     }
 
