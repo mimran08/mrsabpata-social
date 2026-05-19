@@ -8,7 +8,21 @@ const COOKIES_FILE = path.join("company", "x-cookies.json");
 
 // ─── Post a tweet using the saved Safari session cookies ─────────────────────
 
+// Hard timeout wrapper: kills X after 90s so a silent hang doesn't starve the other
+// platforms. On CI runners (no recent stdout = stalled), GH cancels the whole job after
+// ~30 min of silence — that's how we lost two consecutive evening runs.
+const X_DEADLINE_MS = 90_000;
+
 export async function postViaBrowser(text: string, imagePath?: string): Promise<void> {
+  return Promise.race([
+    _postViaBrowserImpl(text, imagePath),
+    new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error(`X timed out after ${X_DEADLINE_MS}ms — aborting so other platforms can run`)), X_DEADLINE_MS)
+    ),
+  ]);
+}
+
+async function _postViaBrowserImpl(text: string, imagePath?: string): Promise<void> {
   // Hard-truncate to 270 chars (X non-Premium limit is 280; leaves a 10-char buffer
   // for X's URL-weight counting). Tweets over 280 trigger a "Premium required" dialog
   // that silently breaks the submit flow and can leave a garbled hashtag-only post.
