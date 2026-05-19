@@ -665,42 +665,34 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   const done = { ...(cache?.done ?? { x: false, tiktok: false, instagram: false, youtube: false }) };
 
   // ── X ────────────────────────────────────────────────────────────────────────
-  // API-first: ~2s, reliable. Browser path is unreliable on CI (silent multi-minute
-  // hangs after "Compose dialog open" — WebKit + Xvfb + X's heavy SPA don't get along)
-  // and slow even when it works. Trade-off: free-tier API can't attach media, so X
-  // posts are text-only. Other platforms still get the image.
   if (!done.x) {
-    const hasX = process.env.X_API_KEY && process.env.X_API_SECRET &&
-      process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET;
-    let apiSucceeded = false;
-    if (hasX) {
-      try {
-        const result = await postTweet(posts.x);
-        log(ROLE, "info", `✅ X: posted via API — tweet ID: ${result.id}`);
-        done.x = true;
-        await saveDone(done);
-        apiSucceeded = true;
-      } catch (apiErr) {
-        const aMsg = String(apiErr);
-        if (aMsg.includes("CreditsDepleted")) {
-          log(ROLE, "warn", "X API: No credits — falling back to browser");
-        } else {
-          log(ROLE, "warn", `X API failed: ${aMsg.slice(0, 100)} — falling back to browser`);
-        }
-      }
-    }
-    if (!apiSucceeded) {
-      try {
-        await postViaBrowser(posts.x, imagePath);
-        log(ROLE, "info", "✅ X: posted via browser (fallback)");
-        done.x = true;
-        await saveDone(done);
-      } catch (browserErr) {
-        const bMsg = String(browserErr);
-        if (bMsg.includes("x-cookies.json") || bMsg.includes("expired")) {
-          log(ROLE, "warn", `X browser: ${bMsg.slice(0, 100)}`);
-        } else {
-          log(ROLE, "error", `X browser also failed: ${bMsg.slice(0, 100)}`);
+    try {
+      await postViaBrowser(posts.x, imagePath);
+      log(ROLE, "info", "✅ X: posted via browser");
+      done.x = true;
+      await saveDone(done);
+    } catch (browserErr) {
+      const bMsg = String(browserErr);
+      if (bMsg.includes("x-cookies.json") || bMsg.includes("expired")) {
+        log(ROLE, "warn", `X browser: ${bMsg.slice(0, 100)}`);
+      } else {
+        log(ROLE, "warn", `X browser failed: ${bMsg.slice(0, 80)} — trying API`);
+        const hasX = process.env.X_API_KEY && process.env.X_API_SECRET &&
+          process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET;
+        if (hasX) {
+          try {
+            const result = await postTweet(posts.x);
+            log(ROLE, "info", `✅ X: posted via API — tweet ID: ${result.id}`);
+            done.x = true;
+            await saveDone(done);
+          } catch (apiErr) {
+            const aMsg = String(apiErr);
+            if (aMsg.includes("CreditsDepleted")) {
+              log(ROLE, "warn", "X API: No credits — add credits at developer.twitter.com");
+            } else {
+              log(ROLE, "error", `X API failed: ${aMsg.slice(0, 100)}`);
+            }
+          }
         }
       }
     }
