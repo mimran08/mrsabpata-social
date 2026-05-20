@@ -1,8 +1,10 @@
 name: Evening Post (6pm Stockholm)
 
 on:
-  schedule:
-    - cron: '0 16 * * *'  # 16:00 UTC = 18:00 Stockholm (CEST/UTC+2 summer)
+  # Schedule disabled — posting now runs on the self-hosted Mac runner via
+  # evening-post-mac.yml (dispatched by the Cloudflare Worker). This cloud workflow
+  # is kept as a manual emergency backup only. Re-enabling the schedule would cause
+  # duplicate posts (different cache key from the -mac variant).
   workflow_dispatch:        # manual trigger from GitHub UI
 
 jobs:
