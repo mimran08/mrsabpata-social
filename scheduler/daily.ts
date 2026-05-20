@@ -665,40 +665,13 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   const done = { ...(cache?.done ?? { x: false, tiktok: false, instagram: false, youtube: false }) };
 
   // ── X ────────────────────────────────────────────────────────────────────────
-  if (!done.x) {
-    try {
-      await postViaBrowser(posts.x, imagePath);
-      log(ROLE, "info", "✅ X: posted via browser");
-      done.x = true;
-      await saveDone(done);
-    } catch (browserErr) {
-      const bMsg = String(browserErr);
-      if (bMsg.includes("x-cookies.json") || bMsg.includes("expired")) {
-        log(ROLE, "warn", `X browser: ${bMsg.slice(0, 100)}`);
-      } else {
-        log(ROLE, "warn", `X browser failed: ${bMsg.slice(0, 80)} — trying API`);
-        const hasX = process.env.X_API_KEY && process.env.X_API_SECRET &&
-          process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET;
-        if (hasX) {
-          try {
-            const result = await postTweet(posts.x);
-            log(ROLE, "info", `✅ X: posted via API — tweet ID: ${result.id}`);
-            done.x = true;
-            await saveDone(done);
-          } catch (apiErr) {
-            const aMsg = String(apiErr);
-            if (aMsg.includes("CreditsDepleted")) {
-              log(ROLE, "warn", "X API: No credits — add credits at developer.twitter.com");
-            } else {
-              log(ROLE, "error", `X API failed: ${aMsg.slice(0, 100)}`);
-            }
-          }
-        }
-      }
-    }
-  } else {
-    log(ROLE, "info", "⏭ X: already posted — skipping");
-  }
+  // X is posted MANUALLY (not automated). Every automated path fails: browser
+  // (Playwright WebKit) hangs 90s+ on X's bot challenge; API tweet POST returns
+  // 402 CreditsDepleted (needs paid plan); Safari keystroke/JS injection is too
+  // fragile. The X text+image is still generated and archived below so it can be
+  // posted by hand. X is excluded from the success/failure summary.
+  log(ROLE, "info", `📋 X: manual post — text ready in archive (theme: ${posts.theme.slice(0, 50)})`);
+  void postTweet; void postViaBrowser; // kept for manual/future use
 
   // ── TikTok ───────────────────────────────────────────────────────────────────
   if (!done.tiktok) {
@@ -766,9 +739,10 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   }
 
   // ── Final summary ─────────────────────────────────────────────────────────────
-  const succeeded = [done.x && "X", done.tiktok && "TikTok", done.instagram && "Instagram", done.youtube && "YouTube"].filter(Boolean);
-  const failed = [!done.x && "X", !done.tiktok && "TikTok", !done.instagram && "Instagram", !done.youtube && "YouTube"].filter(Boolean);
-  log(ROLE, "info", `━━━ Summary ━━━ ✅ ${succeeded.join(", ") || "none"} | ❌ ${failed.join(", ") || "none"}`);
+  // X is excluded — it's posted manually, not automated (see X block above).
+  const succeeded = [done.tiktok && "TikTok", done.instagram && "Instagram", done.youtube && "YouTube"].filter(Boolean);
+  const failed = [!done.tiktok && "TikTok", !done.instagram && "Instagram", !done.youtube && "YouTube"].filter(Boolean);
+  log(ROLE, "info", `━━━ Summary ━━━ ✅ ${succeeded.join(", ") || "none"} | ❌ ${failed.join(", ") || "none"} | 📋 X: manual`);
 
   if (failed.length > 0) {
     throw new Error(`RETRY_NEEDED: ${failed.join(", ")} did not post — re-run to retry only failed platforms`);

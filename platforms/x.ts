@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import { PlatformError } from "../utils/errors.js";
 import { withRetry } from "../utils/retry.js";
+import { log } from "../utils/logger.js";
 
 const ROLE = "x";
 const API_BASE = "https://api.twitter.com/2";
@@ -68,9 +69,42 @@ export interface TweetResult {
   text: string;
 }
 
-export async function postTweet(text: string, replyToId?: string): Promise<TweetResult> {
+// Uploads an image to X's v1.1 media endpoint (works on the current API tier — verified)
+// and returns the media_id_string for attaching to a tweet.
+async function uploadMedia(imagePath: string): Promise<string> {
+  const fs = await import("node:fs/promises");
+  const data = await fs.readFile(imagePath);
+  const url = "https://upload.twitter.com/1.1/media/upload.json";
+  // OAuth header for multipart must NOT include body params in the signature
+  const oauthHeader = buildOAuthHeader("POST", url);
+  const form = new FormData();
+  form.append("media", new Blob([new Uint8Array(data)]), "image.png");
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: oauthHeader },
+    body: form,
+  });
+  if (!res.ok) {
+    throw new PlatformError("x", `MEDIA_HTTP_${res.status}`, (await res.text()).slice(0, 300));
+  }
+  const json = await res.json() as { media_id_string: string };
+  return json.media_id_string;
+}
+
+export async function postTweet(text: string, replyToId?: string, imagePath?: string): Promise<TweetResult> {
   const body: Record<string, unknown> = { text };
   if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId };
+
+  if (imagePath) {
+    try {
+      const mediaId = await withRetry(() => uploadMedia(imagePath), ROLE);
+      body.media = { media_ids: [mediaId] };
+    } catch (err) {
+      // Media failed — post text-only rather than nothing
+      log(ROLE, "warn", `X media upload failed, posting text-only: ${String(err).slice(0, 80)}`);
+    }
+  }
 
   const data = await withRetry(() => xPost("/tweets", body), ROLE) as { data: TweetResult };
   return data.data;
