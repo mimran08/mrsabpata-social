@@ -100,7 +100,18 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
         return btn && !btn.disabled;
       }, { timeout: 60000 });
     }
-    await postBtn.click();
+    // force:true bypasses overlay interception (TikTok Studio has transient overlays
+    // that make a plain .click() time out even though the button is enabled). Fall back
+    // to a JS click if the Playwright click still doesn't land.
+    try {
+      await postBtn.click({ force: true, timeout: 10000 });
+    } catch {
+      await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll("button"))
+          .find(b => /^(post|publish)$/i.test(b.textContent?.trim() || "")) as HTMLButtonElement | undefined;
+        btn?.click();
+      });
+    }
 
     await page.waitForTimeout(8000);
     log(ROLE, "info", "Posted to TikTok");
