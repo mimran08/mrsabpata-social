@@ -308,7 +308,10 @@ Return ONLY valid JSON, no markdown:
     }),
   });
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    log(ROLE, "warn", `Groq generation failed ${res.status}: ${(await res.text()).slice(0, 150)} — news skipped`);
+    return null;
+  }
 
   const data = await res.json() as { choices: Array<{ message: { content: string } }> };
   const rawText = data.choices[0].message.content.trim();
@@ -387,7 +390,10 @@ Return ONLY valid JSON, no markdown:
     }),
   });
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    log(ROLE, "warn", `Groq generation failed ${res.status}: ${(await res.text()).slice(0, 150)} — news skipped`);
+    return null;
+  }
 
   const data = await res.json() as { choices: Array<{ message: { content: string } }> };
   const rawText = data.choices[0].message.content.trim();
