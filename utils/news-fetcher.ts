@@ -37,15 +37,6 @@ const SOURCES: NewsSource[] = [
     linkPattern: /href="(https:\/\/www\.thelocal\.se\/2\d{7}\/[^"?]+)"/g,
   },
   {
-    name: "Sverige Radio English",
-    pages: [
-      "https://sverigesradio.se/english",
-      "https://sverigesradio.se/avdelning/1436",   // News in English section
-    ],
-    linkPattern: /href="(\/artikel\/\d{5,}[^"?]*)"/g,
-    baseUrl: "https://sverigesradio.se",
-  },
-  {
     name: "Schengen Visa Info",
     pages: [
       "https://schengenvisainfo.com/news/sweden/",
