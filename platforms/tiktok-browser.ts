@@ -88,6 +88,14 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
     await page.keyboard.type(caption.slice(0, 2200), { delay: 10 });
     await page.waitForTimeout(500);
 
+    // Dismiss the hashtag autocomplete dropdown. It stays open after typing #tags and
+    // overlays the Post button — a click then lands on the dropdown, not Post, so the
+    // post silently never publishes. Escape closes it; click elsewhere as backup.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await page.mouse.click(10, 10);
+    await page.waitForTimeout(500);
+
     // Click Post button — use Playwright locator
     const postBtn = page.locator("button").filter({ hasText: /^(post|publish)$/i }).first();
     await postBtn.waitFor({ state: "visible", timeout: 15000 });
