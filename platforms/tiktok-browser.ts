@@ -8,6 +8,23 @@ const ROLE = "TikTok-Browser";
 const SESSION_FILE = path.join("company", "tiktok-session.json");
 const COOKIES_FILE = path.join("company", "tiktok-cookies.json");
 
+// TikTok Studio shows a react-joyride onboarding tour whose overlay intercepts all
+// clicks. Escape doesn't close it — you must click the button inside its portal
+// (label varies). Click it (up to 5 steps) until the portal disappears.
+async function dismissJoyride(page: import("playwright").Page): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    const gone = await page.evaluate(() => {
+      const portal = document.querySelector("#react-joyride-portal");
+      if (!portal) return true;
+      const btn = portal.querySelector("button") as HTMLButtonElement | null;
+      if (btn) { btn.click(); return false; }
+      return false;
+    });
+    if (gone) return;
+    await page.waitForTimeout(600);
+  }
+}
+
 export async function postViaTikTok(caption: string, imagePath?: string): Promise<void> {
   const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
   const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
@@ -65,15 +82,11 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
       await page.waitForTimeout(15000); // TikTok takes longer to process video
     }
 
-    // Dismiss TikTok tutorial overlay if shown (react-joyride blocks caption click)
-    const joyride = page.locator('[data-test-id="overlay"], .react-joyride__overlay').first();
-    if (await joyride.isVisible().catch(() => false)) {
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(500);
-      // Also try clicking a Skip/Close button
-      await page.locator("button").filter({ hasText: /skip|close|dismiss/i }).first().click({ force: true }).catch(() => {});
-      await page.waitForTimeout(500);
-    }
+    // Dismiss the TikTok onboarding tour (react-joyride). Its overlay intercepts all
+    // clicks — including Post — which is the main cause of silent publish failures.
+    // Escape doesn't close react-joyride; you must click the button inside its portal
+    // (label varies: Skip/Next/Got it/×). Loop until the portal is gone.
+    await dismissJoyride(page);
 
     // Fill caption — TikTok Studio uses a Draft.js contenteditable.
     // TikTok auto-fills the field with the uploaded filename, so we must
@@ -89,40 +102,40 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
     await page.waitForTimeout(500);
 
     // Dismiss the hashtag autocomplete dropdown. It stays open after typing #tags and
-    // overlays the Post button — a click then lands on the dropdown, not Post, so the
-    // post silently never publishes. Escape closes it; click elsewhere as backup.
+    // overlays the Post button — a click then lands on the dropdown, not Post.
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     await page.mouse.click(10, 10);
     await page.waitForTimeout(500);
+    await dismissJoyride(page); // tour can reappear after caption focus
 
-    // Click Post button — use Playwright locator
-    const postBtn = page.locator("button").filter({ hasText: /^(post|publish)$/i }).first();
-    await postBtn.waitFor({ state: "visible", timeout: 15000 });
-    const isDisabled = await postBtn.isDisabled().catch(() => false);
-    if (isDisabled) {
-      // Wait for it to become enabled (video still processing)
-      await page.waitForFunction(() => {
-        const btn = Array.from(document.querySelectorAll("button"))
-          .find(b => /^(post|publish)$/i.test(b.textContent?.trim() || "")) as HTMLButtonElement | undefined;
-        return btn && !btn.disabled;
-      }, { timeout: 60000 });
-    }
-    // force:true bypasses overlay interception (TikTok Studio has transient overlays
-    // that make a plain .click() time out even though the button is enabled). Fall back
-    // to a JS click if the Playwright click still doesn't land.
-    try {
-      await postBtn.click({ force: true, timeout: 10000 });
-    } catch {
+    // Wait for Post button to be enabled (video still processing while disabled)
+    await page.waitForFunction(() => {
+      const btn = Array.from(document.querySelectorAll("button"))
+        .find(b => /^(post|publish)$/i.test(b.textContent?.trim() || "")) as HTMLButtonElement | undefined;
+      return btn && btn.getAttribute("aria-disabled") !== "true" && !btn.disabled;
+    }, { timeout: 60000 }).catch(() => {});
+
+    // Click Post and VERIFY it published. A successful post navigates away from /upload
+    // to /content. If it doesn't, the click was swallowed (overlay) — retry up to 3×.
+    // Previously we logged "Posted" after a blind click, which silently lost posts.
+    let published = false;
+    for (let attempt = 1; attempt <= 3 && !published; attempt++) {
+      await dismissJoyride(page);
       await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll("button"))
           .find(b => /^(post|publish)$/i.test(b.textContent?.trim() || "")) as HTMLButtonElement | undefined;
         btn?.click();
       });
+      published = await page.waitForURL(/tiktokstudio\/content/, { timeout: 20000 }).then(() => true).catch(() => false);
+      if (!published) log(ROLE, "warn", `TikTok Post click ${attempt} didn't publish — retrying`);
     }
 
-    await page.waitForTimeout(8000);
-    log(ROLE, "info", "Posted to TikTok");
+    if (!published) {
+      await page.screenshot({ path: `logs/debug-tiktok-no-publish-${Date.now()}.png` }).catch(() => {});
+      throw new Error("TikTok post did not publish after 3 attempts (no redirect to /content)");
+    }
+    log(ROLE, "info", "Posted to TikTok (confirmed — redirected to content manager)");
   } finally {
     await browser.close();
     // Clean up temp video file
