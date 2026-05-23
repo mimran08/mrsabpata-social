@@ -120,9 +120,11 @@ function extractLinks(html: string, source: NewsSource): string[] {
   const re = new RegExp(source.linkPattern.source, source.linkPattern.flags);
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
-    // Strip query AND fragment — fragments like #article-comments otherwise leak
-    // through as a separate URL and waste dedup slots
-    let url = m[1].split("?")[0].split("#")[0];
+    // Normalize URL: strip query, fragment, AND trailing slash. The same article
+    // is sometimes linked as ".../slug" and ".../slug/" — without trailing-slash
+    // normalization, dedup misses the second variant and the article posts again
+    // (this bit us on 2026-05-23 evening — same article posted 3 times in 24h).
+    let url = m[1].split("?")[0].split("#")[0].replace(/\/$/, "");
     if (source.baseUrl && url.startsWith("/")) url = source.baseUrl + url;
     if (!seen.has(url)) { seen.add(url); urls.push(url); }
   }
