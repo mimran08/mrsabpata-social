@@ -91,15 +91,45 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
     // Fill caption — TikTok Studio uses a Draft.js contenteditable.
     // TikTok auto-fills the field with the uploaded filename, so we must
     // select-all and delete before typing the real caption.
+    //
+    // The select-all shortcut is platform-specific (Meta+a on macOS, Control+a
+    // elsewhere). Previously hardcoded Control+a — that's a no-op on macOS
+    // Chromium, leaving the bare filename as the published caption. Use both:
+    // press both shortcuts AND verify with a JS fallback that clears the
+    // Draft.js editor's text content directly.
     const captionEl = page.locator('[contenteditable="true"]').first();
     await captionEl.waitFor({ state: "visible", timeout: 20000 });
     await captionEl.click({ force: true });
     await page.waitForTimeout(300);
-    await page.keyboard.press("Control+a");
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+a" : "Control+a");
     await page.keyboard.press("Backspace");
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(150);
+    // Verify the field is empty; if not, force-clear via DOM (Draft.js needs an input event)
+    const remaining = await captionEl.evaluate(el => (el as HTMLElement).innerText.trim());
+    if (remaining.length > 0) {
+      log(ROLE, "warn", `Caption clear via keyboard failed (still has '${remaining.slice(0, 40)}') — using DOM fallback`);
+      await captionEl.evaluate(el => {
+        const e = el as HTMLElement;
+        // Select all text inside the contenteditable, then dispatch beforeinput delete
+        const range = document.createRange();
+        range.selectNodeContents(e);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      });
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(150);
+    }
     await page.keyboard.type(caption.slice(0, 2200), { delay: 10 });
     await page.waitForTimeout(500);
+    // Final verify — caption must contain the first non-hashtag word of what we sent
+    const firstWord = caption.split(/\s+/).find(w => !w.startsWith("#")) ?? "";
+    if (firstWord.length > 2) {
+      const finalText = await captionEl.evaluate(el => (el as HTMLElement).innerText);
+      if (!finalText.toLowerCase().includes(firstWord.toLowerCase())) {
+        throw new Error(`TikTok caption did not take — expected '${firstWord}', got '${finalText.slice(0, 80)}'`);
+      }
+    }
 
     // Dismiss the hashtag autocomplete dropdown. It stays open after typing #tags and
     // overlays the Post button — a click then lands on the dropdown, not Post.

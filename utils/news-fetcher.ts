@@ -120,7 +120,9 @@ function extractLinks(html: string, source: NewsSource): string[] {
   const re = new RegExp(source.linkPattern.source, source.linkPattern.flags);
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
-    let url = m[1].split("?")[0];
+    // Strip query AND fragment — fragments like #article-comments otherwise leak
+    // through as a separate URL and waste dedup slots
+    let url = m[1].split("?")[0].split("#")[0];
     if (source.baseUrl && url.startsWith("/")) url = source.baseUrl + url;
     if (!seen.has(url)) { seen.add(url); urls.push(url); }
   }

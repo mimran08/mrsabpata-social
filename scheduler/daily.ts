@@ -339,12 +339,29 @@ async function generateFromNews(session: "morning" | "evening"): Promise<{
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
 
-  const articles = await fetchRelevantNews(5);
+  // Fetch wider candidate pool so dedup-filtering can drop already-used URLs and still leave choices
+  const articles = await fetchRelevantNews(12);
   if (!articles.length) return null;
 
-  // Pick article: alternate between top-scored and second for variety
-  const pick = articles[Math.floor(Math.random() * Math.min(3, articles.length))];
-  log(ROLE, "info", `News: "${pick.title.slice(0, 70)}" (score ${pick.relevanceScore})`);
+  // Dedup: skip any article whose URL we've already posted in the last 14 days.
+  // Without this, news-fetcher's deterministic ordering means a fresh-news-free
+  // day repeats yesterday's top story — exactly what happened 2026-05-23.
+  const dedupPath = path.join("company", "posted-news.json");
+  type PostedEntry = { url: string; postedAt: string };
+  let posted: PostedEntry[] = [];
+  try { posted = JSON.parse(await fs.readFile(dedupPath, "utf-8")); } catch { /* first run */ }
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  posted = posted.filter(p => new Date(p.postedAt).getTime() > cutoff);
+  const usedUrls = new Set(posted.map(p => p.url));
+  const fresh = articles.filter(a => !usedUrls.has(a.url));
+  if (!fresh.length) {
+    log(ROLE, "info", `All ${articles.length} candidate articles already posted in last 14 days — falling back`);
+    return null;
+  }
+
+  // Pick from top-3 of FRESH articles (preserves variety, never repeats)
+  const pick = fresh[Math.floor(Math.random() * Math.min(3, fresh.length))];
+  log(ROLE, "info", `News: "${pick.title.slice(0, 70)}" (score ${pick.relevanceScore}, ${fresh.length}/${articles.length} fresh)`);
 
   const prompt = `You are MrSabPata — writing social media posts for Pakistanis and South Asians living in or moving to Sweden. Your audience are real people: newcomers, visa applicants, workers, students, families.
 
@@ -404,6 +421,14 @@ Return ONLY valid JSON, no markdown:
   const raw = JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
   const str = (v: unknown): string =>
     typeof v === "string" ? v : typeof v === "object" && v !== null ? Object.values(v).join("\n") : String(v ?? "");
+
+  // Record the URL so future runs don't pick the same article (best-effort — non-fatal)
+  try {
+    posted.push({ url: pick.url, postedAt: new Date().toISOString() });
+    await fs.writeFile(dedupPath, JSON.stringify(posted, null, 2), "utf-8");
+  } catch (e) {
+    log(ROLE, "warn", `Could not write posted-news dedup: ${String(e).slice(0, 80)}`);
+  }
 
   return {
     x: str(raw.x), instagram: str(raw.instagram), tiktok: str(raw.tiktok),
