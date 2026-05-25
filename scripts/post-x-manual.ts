@@ -29,20 +29,27 @@ async function findArchive(session: "morning" | "evening"): Promise<{ archivePat
   // Check local first, then the self-hosted runner's workspace
   const roots = [process.cwd(), `${process.env.HOME}/actions-runner/_work/mrsabpata-social/mrsabpata-social`];
 
+  // Prefer -recovery.md archive when present — recovery scripts write it when the
+  // cron-generated content gets deleted (e.g. duplicate news). Without this we'd
+  // post the stale cron text on X even after the other platforms were repaired.
+  const archiveNames = [`${today}-${session}-recovery.md`, `${today}-${session}.md`];
+
   for (const root of roots) {
-    const archive = path.join(root, "company", "daily-posts", `${today}-${session}.md`);
-    if (await fs.access(archive).then(() => true).catch(() => false)) {
-      // Prefer the X-specific image (-x.png), fall back to the main image
-      const candidates = [
-        path.join(root, "company", "post-images", `${today}-${session}-x.png`),
-        path.join(root, "company", "post-images", `${today}-${session}.png`),
+    for (const archiveName of archiveNames) {
+      const archive = path.join(root, "company", "daily-posts", archiveName);
+      if (!(await fs.access(archive).then(() => true).catch(() => false))) continue;
+
+      const filenameStem = archiveName.replace(/\.md$/, "");
+      const imageCandidates = [
+        path.join(root, "company", "post-images", `${filenameStem}-x.png`),
+        path.join(root, "company", "post-images", `${filenameStem}.png`),
       ];
-      for (const img of candidates) {
+      for (const img of imageCandidates) {
         if (await fs.access(img).then(() => true).catch(() => false)) {
           return { archivePath: archive, imagePath: img };
         }
       }
-      throw new Error(`Archive found at ${archive} but no matching image (tried ${candidates.join(", ")})`);
+      throw new Error(`Archive ${archive} found but no matching image (tried ${imageCandidates.join(", ")})`);
     }
   }
   throw new Error(`No ${today}-${session}.md archive found in cwd or runner workspace`);
@@ -82,8 +89,10 @@ async function main() {
   }
 
   if (!xText) throw new Error("No X text found in archive");
-  if (xText.length > 280) {
-    log(ROLE, "warn", `X text is ${xText.length} chars (>280) — X may reject. Trim the post-bank entry.`);
+  if (xText.length > 270) {
+    // X's character counter weights some chars >1 (em-dash, emoji, unicode); 270 is
+    // the safe ceiling in practice. 277-char post got rejected on 2026-05-25 morning.
+    log(ROLE, "warn", `X text is ${xText.length} chars (>270 safe ceiling) — X may reject. Trim the post-bank entry.`);
   }
 
   log(ROLE, "info", `Theme: ${theme}`);

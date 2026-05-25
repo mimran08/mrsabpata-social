@@ -344,12 +344,27 @@ async function generateFromNews(session: "morning" | "evening"): Promise<{
   if (!articles.length) return null;
 
   // Dedup: skip any article whose URL we've already posted in the last 14 days.
-  // Without this, news-fetcher's deterministic ordering means a fresh-news-free
-  // day repeats yesterday's top story — exactly what happened 2026-05-23.
-  const dedupPath = path.join("company", "posted-news.json");
+  // State path: prefer MRSABPATA_STATE_DIR (out-of-repo, survives `git checkout`
+  // on the cron runner) and fall back to in-repo. Without this, dedup writes
+  // got blown away by checkout on the next run — same article posted 3× in 24h
+  // on 2026-05-23/24, and again on 2026-05-25.
+  // The in-repo file (company/posted-news.json) is still read as a seed so a
+  // fresh runner / local dev still gets historical dedup hits.
   type PostedEntry = { url: string; postedAt: string };
+  const stateDir = process.env.MRSABPATA_STATE_DIR;
+  const persistentPath = stateDir ? path.join(stateDir, "posted-news.json") : null;
+  const seedPath = path.join("company", "posted-news.json");
   let posted: PostedEntry[] = [];
-  try { posted = JSON.parse(await fs.readFile(dedupPath, "utf-8")); } catch { /* first run */ }
+  const readJsonSafe = async (p: string): Promise<PostedEntry[]> => {
+    try { return JSON.parse(await fs.readFile(p, "utf-8")); } catch { return []; }
+  };
+  // Merge persistent state on top of the in-repo seed (persistent takes precedence per-URL)
+  const seedEntries = await readJsonSafe(seedPath);
+  const persistentEntries = persistentPath ? await readJsonSafe(persistentPath) : [];
+  const byUrl = new Map<string, PostedEntry>();
+  for (const e of seedEntries) byUrl.set(e.url, e);
+  for (const e of persistentEntries) byUrl.set(e.url, e); // overrides seed
+  posted = Array.from(byUrl.values());
   const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
   posted = posted.filter(p => new Date(p.postedAt).getTime() > cutoff);
   const usedUrls = new Set(posted.map(p => p.url));
@@ -422,10 +437,17 @@ Return ONLY valid JSON, no markdown:
   const str = (v: unknown): string =>
     typeof v === "string" ? v : typeof v === "object" && v !== null ? Object.values(v).join("\n") : String(v ?? "");
 
-  // Record the URL so future runs don't pick the same article (best-effort — non-fatal)
+  // Record the URL so future runs don't pick the same article (best-effort — non-fatal).
+  // Write to the persistent (out-of-repo) path if configured, else the seed file
+  // (note: in-repo writes are wiped by next cron checkout — only useful in local dev).
   try {
     posted.push({ url: pick.url, postedAt: new Date().toISOString() });
-    await fs.writeFile(dedupPath, JSON.stringify(posted, null, 2), "utf-8");
+    const writePath = persistentPath ?? seedPath;
+    if (persistentPath) {
+      await fs.mkdir(path.dirname(persistentPath), { recursive: true });
+    }
+    await fs.writeFile(writePath, JSON.stringify(posted, null, 2), "utf-8");
+    log(ROLE, "info", `Dedup updated: ${writePath}`);
   } catch (e) {
     log(ROLE, "warn", `Could not write posted-news dedup: ${String(e).slice(0, 80)}`);
   }
