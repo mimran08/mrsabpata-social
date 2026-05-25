@@ -99,6 +99,9 @@ jobs:
           # Persistent state dir (out of repo) — survives `git checkout` between cron
           # runs so news-dedup state actually accumulates across days
           MRSABPATA_STATE_DIR: /Users/imran/.mrsabpata-state
+          # Long video mode: 60s structured renderer (hook → points → stat → cta).
+          # Unset (or set to anything other than "1") to fall back to the 20s renderer.
+          LONG_VIDEO: "1"
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}

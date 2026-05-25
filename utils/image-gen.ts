@@ -73,7 +73,7 @@ function seedFromFilename(filename: string): number {
 }
 
 // Download AI background from Pollinations.ai (FLUX model, free, no API key)
-async function downloadAIBackground(pillar: string, seed: number): Promise<Buffer> {
+export async function downloadAIBackground(pillar: string, seed: number): Promise<Buffer> {
   const basePrompt = PILLAR_PROMPTS[pillar]
     ?? "Stockholm Sweden, Scandinavian landscape, Nordic design, dramatic lighting";
   const fullPrompt = `${basePrompt}, deep navy blue and forest green tones, dark cinematic background, no text, no watermark, no people faces, ultra quality`;

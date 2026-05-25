@@ -6,6 +6,8 @@ import { uploadYouTubeShort as uploadYouTubeShortBrowser } from "../platforms/yo
 import { postViaInstagram } from "../platforms/instagram-browser.js";
 import { generatePostImage } from "../utils/image-gen.js";
 import { generateAnimatedVideo } from "../utils/video-gen-animated.js";
+import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-long.js";
+import { buildScriptDict } from "../utils/script-dict.js";
 import { generateVideo } from "../utils/video-gen.js";
 import { fetchRelevantNews } from "../utils/news-fetcher.js";
 import { log } from "../utils/logger.js";
@@ -677,27 +679,54 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       log(ROLE, "warn", `Image generation failed: ${String(err).slice(0, 80)}`);
     }
 
-    // Generate animated video (Playwright HTML renderer + CSS animations)
+    // Video generation. LONG_VIDEO=1 selects the 60s multi-scene renderer
+    // (hook → points → stat → action → cta) with cycling AI backgrounds.
+    // Default OFF — falls back to the proven 20s animated renderer.
     if (imagePath) {
-      try {
-        videoPath = await generateAnimatedVideo({
-          imagePath,
-          bgImagePath,          // raw background — no text bleed-through
-          stat: posts.stat || posts.theme,
-          subtext: posts.subtext || "",
-          pillar: pillarName,
-          voiceText: posts.instagram,
-          filename: `${dateString()}-${session}`,
-          musicMood: contentType === "quote" ? "inspirational" : contentType === "news" ? "ambient" : "cultural",
-        });
-        log(ROLE, "info", `Video generated: ${videoPath}`);
-      } catch (err) {
-        log(ROLE, "warn", `Animated video failed: ${String(err).slice(0, 80)} — falling back to static video`);
+      const useLong = process.env.LONG_VIDEO === "1";
+      if (useLong) {
         try {
-          videoPath = await generateVideo({ imagePath, voiceText: posts.instagram, filename: `${dateString()}-${session}` });
-          log(ROLE, "info", `Static video fallback: ${videoPath}`);
-        } catch (err2) {
-          log(ROLE, "warn", `Static video fallback also failed: ${String(err2).slice(0, 80)}`);
+          const script = buildScriptDict(posts);
+          log(ROLE, "info", `Long video — Hook: ${script.hook.slice(0, 80)}`);
+          log(ROLE, "info", `Long video — ${script.points.length} points, stat=${script.stat ? "yes" : "no"}, action=${script.actionLine ? "yes" : "no"}`);
+          // Generate 3 distinct AI backgrounds for scene variety
+          const bgPool = await generateBackgroundPool(pillarName, 3, `${dateString()}-${session}`);
+          videoPath = await generateLongVideo({
+            script,
+            imagePath,
+            bgImagePath,
+            bgImagePaths: bgPool.length ? bgPool : undefined,
+            pillar: pillarName,
+            filename: `${dateString()}-${session}`,
+            pacingMode: "many-short",
+          });
+          log(ROLE, "info", `Long video generated: ${videoPath}`);
+        } catch (err) {
+          log(ROLE, "warn", `Long video failed: ${String(err).slice(0, 100)} — falling back to short animated`);
+          // fall through to short renderer below
+        }
+      }
+      if (!videoPath) {
+        try {
+          videoPath = await generateAnimatedVideo({
+            imagePath,
+            bgImagePath,
+            stat: posts.stat || posts.theme,
+            subtext: posts.subtext || "",
+            pillar: pillarName,
+            voiceText: posts.instagram,
+            filename: `${dateString()}-${session}`,
+            musicMood: contentType === "quote" ? "inspirational" : contentType === "news" ? "ambient" : "cultural",
+          });
+          log(ROLE, "info", `Video generated: ${videoPath}`);
+        } catch (err) {
+          log(ROLE, "warn", `Animated video failed: ${String(err).slice(0, 80)} — falling back to static video`);
+          try {
+            videoPath = await generateVideo({ imagePath, voiceText: posts.instagram, filename: `${dateString()}-${session}` });
+            log(ROLE, "info", `Static video fallback: ${videoPath}`);
+          } catch (err2) {
+            log(ROLE, "warn", `Static video fallback also failed: ${String(err2).slice(0, 80)}`);
+          }
         }
       }
     }
