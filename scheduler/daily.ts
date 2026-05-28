@@ -614,10 +614,29 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       }
     }
 
-    // Priority 2: famous motivational quote (when no breaking news)
+    // Priority 2: curated post-bank (28 evergreen themes, date-rotated). Prefer this
+    // over Groq motivational quotes when news is exhausted — bank entries are
+    // human-curated practical content (visa rules, SFI, personnummer, IT jobs)
+    // and rotate deterministically so followers see varied themes across days.
+    // Quotes were running on 2-3 consecutive sessions when news dried up (2026-05-27
+    // evening + 2026-05-28 morning); post-bank gives 14 days of educational variety
+    // before the same theme can return.
+    if (!posts && bankHasContent) {
+      try {
+        log(ROLE, "info", `Using post bank (${bankList!.length} themes, date-rotated)...`);
+        posts = await getFromPostBank(session);
+        source = "bank";
+        log(ROLE, "info", `Post bank — Theme: ${posts.theme.slice(0, 60)}`);
+      } catch (err) {
+        log(ROLE, "warn", `Post bank failed (${String(err).slice(0, 80)}) — falling back to quote / Groq`);
+      }
+    }
+
+    // Priority 3: famous motivational quote (when news + bank are both unavailable —
+    // very rare; would mean bank file is missing or unreadable).
     if (!posts && process.env.GROQ_API_KEY) {
       try {
-        log(ROLE, "info", "No news — trying motivational quote...");
+        log(ROLE, "info", "No news / no bank — trying motivational quote...");
         const quoteResult = await generateFromQuote(session);
         if (quoteResult) {
           posts = quoteResult;
@@ -627,18 +646,6 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
         }
       } catch (err) {
         log(ROLE, "warn", `Quote generation failed: ${String(err).slice(0, 80)}`);
-      }
-    }
-
-    // Priority 3: post bank (static fallback)
-    if (!posts && bankHasContent) {
-      try {
-        log(ROLE, "info", `Using post bank (${bankList!.length} themes, date-rotated)...`);
-        posts = await getFromPostBank(session);
-        source = "bank";
-        log(ROLE, "info", `Post bank — Theme: ${posts.theme.slice(0, 60)}`);
-      } catch (err) {
-        log(ROLE, "warn", `Post bank failed (${String(err).slice(0, 80)}) — falling back to Groq`);
       }
     }
 
