@@ -6,8 +6,6 @@ import { log } from "./logger.js";
 import { pickMusicTrack, type MusicMood } from "./music-picker.js";
 
 const ROLE = "VideoGenAnimated";
-const EL_VOICE_ID = "pNInz6obpgDQGcFmaJgB";
-const EL_MODEL    = "eleven_multilingual_v2";
 
 export interface AnimatedVideoOptions {
   imagePath: string;      // branded static PNG — fallback background if bgImagePath not given
@@ -15,7 +13,7 @@ export interface AnimatedVideoOptions {
   stat: string;
   subtext?: string;
   pillar: string;
-  voiceText: string;
+  voiceText: string;      // unused — kept for backward-compat with callers (was TTS source)
   filename: string;
   outDir?: string;
   musicMood?: MusicMood;  // "inspirational" for quotes, "ambient" for news, "cultural" for general
@@ -27,33 +25,15 @@ export async function generateAnimatedVideo(opts: AnimatedVideoOptions): Promise
 
   const mp4Path  = path.join(outDir, `${opts.filename}.mp4`);
   const htmlPath = path.join(outDir, `${opts.filename}-anim.html`);
-
-  // Optional ElevenLabs voiceover
-  let audioPath: string | undefined;
-  const elKey = process.env.ELEVENLABS_API_KEY;
-  if (elKey) {
-    try {
-      audioPath = await generateVoiceover(opts.voiceText, path.join(outDir, `${opts.filename}-voice.mp3`), elKey);
-      log(ROLE, "info", `Voiceover: ${audioPath}`);
-    } catch (err) {
-      log(ROLE, "warn", `Voiceover failed: ${String(err).slice(0, 80)}`);
-    }
-  }
+  void opts.voiceText; // intentionally unused — kept for caller signature compat
 
   // Background music
   const musicPath = await pickMusicTrack(opts.musicMood ?? "ambient");
   if (musicPath) log(ROLE, "info", `Music: ${path.basename(musicPath)}`);
-  else log(ROLE, "info", "No music tracks found — video will be silent/voice-only");
+  else log(ROLE, "info", "No music tracks found — video will be silent");
 
-  // Duration: audio length or 20s default
-  let duration = 20;
-  if (audioPath) {
-    const raw = execSync(
-      `ffprobe -v quiet -show_entries format=duration -of csv=p=0 "${audioPath}"`
-    ).toString().trim();
-    const n = parseFloat(raw);
-    if (!isNaN(n)) duration = Math.ceil(n) + 2;
-  }
+  // Duration: 20s default for animated renderer
+  const duration = 20;
 
   // Prefer raw background (no text overlay) so animated HTML text stays clean
   const bgFile    = opts.bgImagePath ?? opts.imagePath;
@@ -79,25 +59,9 @@ export async function generateAnimatedVideo(opts: AnimatedVideoOptions): Promise
 
   if (!webmFile) throw new Error("Playwright did not produce a video file");
 
-  // Convert webm → mp4 with optional voiceover + background music
+  // Convert webm → mp4 with music if available, else silent.
   const fadeOut = Math.max(0, duration - 2);
-  if (audioPath && musicPath) {
-    // Voiceover + background music (music at 18% so voice is clear)
-    execSync(
-      `ffmpeg -y -i "${webmFile}" -i "${audioPath}" -i "${musicPath}" ` +
-      `-filter_complex "[2:a]volume=0.18,afade=t=out:st=${fadeOut}:d=2[bg];[1:a][bg]amix=inputs=2:duration=first[out]" ` +
-      `-map 0:v -map "[out]" -c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -shortest "${mp4Path}"`,
-      { stdio: "ignore" }
-    );
-  } else if (audioPath) {
-    // Voiceover only
-    execSync(
-      `ffmpeg -y -i "${webmFile}" -i "${audioPath}" ` +
-      `-c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -shortest "${mp4Path}"`,
-      { stdio: "ignore" }
-    );
-  } else if (musicPath) {
-    // Background music only (no voiceover) — music at 30%
+  if (musicPath) {
     execSync(
       `ffmpeg -y -i "${webmFile}" -i "${musicPath}" ` +
       `-filter_complex "[1:a]volume=0.30,afade=t=out:st=${fadeOut}:d=2[bg]" ` +
@@ -105,7 +69,6 @@ export async function generateAnimatedVideo(opts: AnimatedVideoOptions): Promise
       { stdio: "ignore" }
     );
   } else {
-    // Silent
     execSync(
       `ffmpeg -y -i "${webmFile}" -c:v libx264 -preset fast -pix_fmt yuv420p "${mp4Path}"`,
       { stdio: "ignore" }
@@ -115,8 +78,7 @@ export async function generateAnimatedVideo(opts: AnimatedVideoOptions): Promise
   await fs.unlink(webmFile).catch(() => {});
   await fs.unlink(htmlPath).catch(() => {});
 
-  const audioDesc = [audioPath ? "voice" : "", musicPath ? "music" : ""].filter(Boolean).join("+") || "silent";
-  log(ROLE, "info", `Animated video: ${mp4Path} (${duration}s, ${audioDesc})`);
+  log(ROLE, "info", `Animated video: ${mp4Path} (${duration}s, ${musicPath ? "music" : "silent"})`);
   return mp4Path;
 }
 
@@ -345,35 +307,4 @@ function buildParticles(): string {
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-// ─── ElevenLabs voiceover ─────────────────────────────────────────────────────
-
-async function generateVoiceover(text: string, outPath: string, apiKey: string): Promise<string> {
-  const clean = text
-    .replace(/#\S+/g, "")
-    .replace(/\*\*/g, "")
-    .replace(/[^\w\s؀-ۿ.,!?'\-\n]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 800);
-
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE_ID}`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
-      "Accept": "audio/mpeg",
-    },
-    body: JSON.stringify({
-      text: clean,
-      model_id: EL_MODEL,
-      voice_settings: { stability: 0.45, similarity_boost: 0.80, style: 0.25, use_speaker_boost: true },
-    }),
-  });
-
-  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 80)}`);
-
-  await fs.writeFile(outPath, Buffer.from(await res.arrayBuffer()));
-  return outPath;
 }

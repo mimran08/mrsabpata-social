@@ -16,8 +16,6 @@ import { downloadAIBackground } from "./image-gen.js";
 import type { ScriptDict } from "./script-dict.js";
 
 const ROLE = "VideoGenLong";
-const EL_VOICE_ID = "pNInz6obpgDQGcFmaJgB";
-const EL_MODEL    = "eleven_multilingual_v2";
 
 const MAX_DURATION = 58;   // hard ceiling under YouTube Shorts 60s
 
@@ -78,22 +76,6 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
   const totalDuration = scenes.reduce((acc, s) => acc + s.dur, 0);
   log(ROLE, "info", `Pacing: ${pacingMode} → ${scenes.length} scenes / ${totalDuration.toFixed(1)}s total (${scenes.map(s => `${s.kind}:${s.dur.toFixed(1)}s`).join(", ")})`);
 
-  // Voiceover script — join all spoken text with sentence breaks for natural pacing
-  const spokenLines = scenes.map(s => s.voicePart).filter(Boolean);
-  const voiceText = spokenLines.join(" ... ");
-
-  // Optional ElevenLabs voiceover
-  let audioPath: string | undefined;
-  const elKey = process.env.ELEVENLABS_API_KEY;
-  if (elKey) {
-    try {
-      audioPath = await generateVoiceover(voiceText, path.join(outDir, `${opts.filename}-voice.mp3`), elKey);
-      log(ROLE, "info", `Voiceover: ${audioPath}`);
-    } catch (err) {
-      log(ROLE, "warn", `Voiceover failed: ${String(err).slice(0, 80)}`);
-    }
-  }
-
   const musicPath = await pickMusicTrack(opts.script.music_mood);
   if (musicPath) log(ROLE, "info", `Music: ${path.basename(musicPath)}`);
 
@@ -128,22 +110,9 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
 
   if (!webmFile) throw new Error("Playwright did not produce a video file");
 
-  // Mux audio
+  // Mux audio — music if available, else silent.
   const fadeOut = Math.max(0, totalDuration - 2);
-  if (audioPath && musicPath) {
-    execSync(
-      `ffmpeg -y -i "${webmFile}" -i "${audioPath}" -i "${musicPath}" ` +
-      `-filter_complex "[2:a]volume=0.18,afade=t=out:st=${fadeOut}:d=2[bg];[1:a][bg]amix=inputs=2:duration=first[out]" ` +
-      `-map 0:v -map "[out]" -c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -t ${totalDuration} "${mp4Path}"`,
-      { stdio: "ignore" }
-    );
-  } else if (audioPath) {
-    execSync(
-      `ffmpeg -y -i "${webmFile}" -i "${audioPath}" ` +
-      `-c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -t ${totalDuration} "${mp4Path}"`,
-      { stdio: "ignore" }
-    );
-  } else if (musicPath) {
+  if (musicPath) {
     execSync(
       `ffmpeg -y -i "${webmFile}" -i "${musicPath}" ` +
       `-filter_complex "[1:a]volume=0.30,afade=t=out:st=${fadeOut}:d=2[bg]" ` +
@@ -160,8 +129,7 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
   await fs.unlink(webmFile).catch(() => {});
   await fs.unlink(htmlPath).catch(() => {});
 
-  const audioDesc = [audioPath ? "voice" : "", musicPath ? "music" : ""].filter(Boolean).join("+") || "silent";
-  log(ROLE, "info", `Long video: ${mp4Path} (${totalDuration.toFixed(1)}s, ${pacingMode}, ${audioDesc})`);
+  log(ROLE, "info", `Long video: ${mp4Path} (${totalDuration.toFixed(1)}s, ${pacingMode}, ${musicPath ? "music" : "silent"})`);
   return mp4Path;
 }
 
@@ -600,35 +568,4 @@ function buildSceneHtml(s: Scene, animClass: string, _script: ScriptDict): strin
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-// ─── ElevenLabs voiceover ────────────────────────────────────────────────────
-
-async function generateVoiceover(text: string, outPath: string, apiKey: string): Promise<string> {
-  const clean = text
-    .replace(/#\S+/g, "")
-    .replace(/\*\*/g, "")
-    .replace(/[^\w\s؀-ۿ.,!?'\-\n]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 2200);
-
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE_ID}`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
-      "Accept": "audio/mpeg",
-    },
-    body: JSON.stringify({
-      text: clean,
-      model_id: EL_MODEL,
-      voice_settings: { stability: 0.45, similarity_boost: 0.80, style: 0.25, use_speaker_boost: true },
-    }),
-  });
-
-  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 80)}`);
-
-  await fs.writeFile(outPath, Buffer.from(await res.arrayBuffer()));
-  return outPath;
 }
