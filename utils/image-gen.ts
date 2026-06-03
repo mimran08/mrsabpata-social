@@ -72,8 +72,71 @@ function seedFromFilename(filename: string): number {
   return Math.abs(hash) % 99999;
 }
 
-// Download AI background from Pollinations.ai (FLUX model, free, no API key)
+// Per-pillar Pixabay search keywords. Real-photo queries that return vertical
+// or large landscape stock matching the brand mood. Multiple keywords per pillar
+// so different `seed` values can pick different queries → genuinely different visuals.
+const PILLAR_PIXABAY_KEYWORDS: Record<string, string[]> = {
+  "Sweden Visa & Immigration":  ["stockholm night", "stockholm architecture", "scandinavia landscape", "swedish flag", "nordic skyline"],
+  "Work & Visa in Sweden":      ["stockholm night", "scandinavia landscape", "swedish architecture", "nordic skyline"],
+  "Jobs & Career in Sweden":    ["stockholm office", "nordic business", "modern workplace", "scandinavian design", "stockholm skyline"],
+  "Real Immigrant Stories":     ["stockholm street", "scandinavian city", "nordic people", "swedish culture", "stockholm dusk"],
+  "Personal / Faith / Life":    ["swedish forest", "scandinavian nature", "nordic landscape", "stockholm sunset", "scandinavian winter"],
+  "Faith & Life in Sweden":     ["swedish forest", "scandinavian nature", "nordic landscape", "stockholm sunset", "scandinavian winter"],
+};
+
+interface PixabayHit {
+  largeImageURL: string;
+  imageWidth: number;
+  imageHeight: number;
+}
+
+// Fetch a single CC0 image from Pixabay's API. Picks a query keyword from the
+// pillar-specific list using `seed` so different seeds give different visuals.
+async function downloadPixabayBackground(pillar: string, seed: number): Promise<Buffer> {
+  const apiKey = process.env.PIXABAY_API_KEY;
+  if (!apiKey) throw new Error("PIXABAY_API_KEY not set");
+
+  const keywords = PILLAR_PIXABAY_KEYWORDS[pillar]
+    ?? ["stockholm", "scandinavia", "nordic landscape"];
+  const keyword = keywords[seed % keywords.length];
+
+  // Pull a page that's offset by seed so we get different hits across calls.
+  // Pixabay max per_page=200 but we only need ~20; use offset via page number.
+  const page = ((Math.floor(seed / keywords.length)) % 4) + 1;
+  const searchUrl = `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(keyword)}&orientation=vertical&image_type=photo&safesearch=true&per_page=20&page=${page}`;
+
+  const searchRes = await fetch(searchUrl);
+  if (!searchRes.ok) throw new Error(`Pixabay search HTTP ${searchRes.status}`);
+  const data = await searchRes.json() as { hits: PixabayHit[] };
+  if (!data.hits.length) throw new Error(`Pixabay returned 0 hits for "${keyword}"`);
+
+  // Pick a specific hit deterministically from seed so repeat runs are reproducible
+  const hit = data.hits[seed % data.hits.length];
+
+  // Download the image bytes
+  return new Promise((resolve, reject) => {
+    https.get(hit.largeImageURL, res => {
+      if (res.statusCode !== 200) return reject(new Error(`Pixabay CDN HTTP ${res.statusCode}`));
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", reject);
+    }).on("error", reject).setTimeout(20000, function (this: import("node:http").ClientRequest) { this.destroy(); reject(new Error("Pixabay CDN timeout")); });
+  });
+}
+
+// Try Pixabay first (real CC0 photos, high quota), fall back to Pollinations.ai
+// (free FLUX model, no key — but may rate-limit or return 402 since 2026-06-03).
 export async function downloadAIBackground(pillar: string, seed: number): Promise<Buffer> {
+  // Try Pixabay first
+  try {
+    return await downloadPixabayBackground(pillar, seed);
+  } catch (err) {
+    // Fall through to Pollinations on any Pixabay failure
+    void err;
+  }
+
+  // Fallback: Pollinations.ai FLUX model
   const basePrompt = PILLAR_PROMPTS[pillar]
     ?? "Stockholm Sweden, Scandinavian landscape, Nordic design, dramatic lighting";
   const fullPrompt = `${basePrompt}, deep navy blue and forest green tones, dark cinematic background, no text, no watermark, no people faces, ultra quality`;
