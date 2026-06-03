@@ -53,6 +53,9 @@ jobs:
       - name: Create .env.local
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # Pixabay Images API — primary source for scene backgrounds (Pollinations
+          # started returning HTTP 402 on 2026-06-03; Pixabay is free + CC0).
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -103,6 +106,9 @@ jobs:
           # Unset (or set to anything other than "1") to fall back to the 20s renderer.
           LONG_VIDEO: "1"
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # Pixabay Images API — primary source for scene backgrounds (Pollinations
+          # started returning HTTP 402 on 2026-06-03; Pixabay is free + CC0).
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
