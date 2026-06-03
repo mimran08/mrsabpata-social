@@ -10,7 +10,6 @@ const BG_HEX = "0D1B2A";
 
 interface VideoOptions {
   imagePath: string; // 1080×1080 branded PNG
-  voiceText: string; // unused — kept for caller signature compat (was TTS source)
   filename:  string;
   outDir?:   string;
 }
@@ -19,7 +18,6 @@ export async function generateVideo(opts: VideoOptions): Promise<string> {
   const outDir = opts.outDir ?? path.join("company", "post-videos");
   await fs.mkdir(outDir, { recursive: true });
   const videoPath = path.join(outDir, `${opts.filename}.mp4`);
-  void opts.voiceText; // intentionally unused — preserved for caller signature
 
   const duration = 20; // seconds — fixed for silent renderer
 

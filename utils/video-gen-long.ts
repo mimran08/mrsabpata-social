@@ -151,7 +151,6 @@ interface Scene {
   text: string;        // main text shown on screen
   subText?: string;    // optional one-line supporting text shown beneath main (smaller)
   badge?: string;      // small label above main text ("1", "STAT", "DO THIS")
-  voicePart: string;   // what TTS reads for this scene (may equal text)
   bgIndex: number;     // which background from the pool to use
 }
 
@@ -185,16 +184,16 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
     const HOOK = 6, HEAD = 4, DETAIL = 8, CTA = 6;
     const sceneList: Scene[] = [];
     let t = 0;
-    sceneList.push({ kind: "hook", start: t, dur: HOOK, text: script.hook, voicePart: script.hook, bgIndex: 0 });
+    sceneList.push({ kind: "hook", start: t, dur: HOOK, text: script.hook, bgIndex: 0 });
     t += HOOK;
     points.forEach((p, i) => {
       const headline = headlineFromPoint(p);
-      sceneList.push({ kind: "point-headline", start: t, dur: HEAD, text: headline, badge: String(i + 1), voicePart: "", bgIndex: (i + 1) % 3 });
+      sceneList.push({ kind: "point-headline", start: t, dur: HEAD, text: headline, badge: String(i + 1), bgIndex: (i + 1) % 3 });
       t += HEAD;
-      sceneList.push({ kind: "point-detail", start: t, dur: DETAIL, text: p, badge: String(i + 1), voicePart: p, bgIndex: (i + 1) % 3 });
+      sceneList.push({ kind: "point-detail", start: t, dur: DETAIL, text: p, badge: String(i + 1), bgIndex: (i + 1) % 3 });
       t += DETAIL;
     });
-    sceneList.push({ kind: "cta", start: t, dur: CTA, text: script.cta, voicePart: script.cta, bgIndex: 0 });
+    sceneList.push({ kind: "cta", start: t, dur: CTA, text: script.cta, bgIndex: 0 });
     return capToMax(sceneList);
   }
 
@@ -218,7 +217,7 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
     return false;
   };
 
-  sceneList.push({ kind: "hook", start: t, dur: HOOK, text: script.hook, voicePart: script.hook, bgIndex: 0 });
+  sceneList.push({ kind: "hook", start: t, dur: HOOK, text: script.hook, bgIndex: 0 });
   remember(script.hook);
   t += HOOK;
 
@@ -230,7 +229,6 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
       text: split.text,
       subText: split.subText,
       badge: String(i + 1),
-      voicePart: p,
       bgIndex: (i + 1) % 3,
     });
     remember(p);
@@ -238,16 +236,16 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
   });
 
   if (stat && !isDuplicate(stat)) {
-    sceneList.push({ kind: "stat", start: t, dur: STAT, text: stat, badge: "KEY FACT", voicePart: stat, bgIndex: 0 });
+    sceneList.push({ kind: "stat", start: t, dur: STAT, text: stat, badge: "KEY FACT", bgIndex: 0 });
     remember(stat);
     t += STAT;
   }
   if (actionLine && !isDuplicate(actionLine)) {
-    sceneList.push({ kind: "action", start: t, dur: ACTION, text: actionLine, badge: "DO THIS", voicePart: actionLine, bgIndex: 2 });
+    sceneList.push({ kind: "action", start: t, dur: ACTION, text: actionLine, badge: "DO THIS", bgIndex: 2 });
     remember(actionLine);
     t += ACTION;
   }
-  sceneList.push({ kind: "cta", start: t, dur: CTA, text: script.cta, voicePart: script.cta, bgIndex: 0 });
+  sceneList.push({ kind: "cta", start: t, dur: CTA, text: script.cta, bgIndex: 0 });
   // Stretch point scenes to fill toward ~56s total when content is thin. Per-point
   // cap is content-aware: posts with only 2-3 points get a bigger stretch (each
   // point can sit longer); posts with 4+ points stay punchy. Final video usually

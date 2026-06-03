@@ -18,16 +18,6 @@ const SUBTEXT = "#B2DFDB";   // soft teal
 const BG_TOP  = "#0D1B2A";   // fallback bg navy
 const BG_BTM  = "#1B4332";   // fallback bg green
 
-// Per-pillar background prompts — varied but always dark-toned
-const PILLAR_PROMPTS: Record<string, string> = {
-  "Sweden Visa & Immigration":  "Stockholm government buildings, Swedish passport, EU visa documents, Scandinavian architecture, dramatic night lighting",
-  "Work & Visa in Sweden":      "Stockholm government buildings, Swedish passport, EU visa documents, Scandinavian architecture, dramatic night lighting",
-  "Jobs & Career in Sweden":    "Modern Stockholm office interior, laptop, Nordic business district skyline, professional workplace, dramatic low light",
-  "Real Immigrant Stories":     "Pakistani family in Sweden, multicultural community Scandinavia, immigrant journey, warm street lighting, documentary style",
-  "Personal / Faith / Life":    "Swedish northern forest at dusk, mosque silhouette Sweden, peaceful Nordic landscape, spiritual reflection",
-  "Faith & Life in Sweden":     "Swedish northern forest at dusk, mosque silhouette Sweden, peaceful Nordic landscape, spiritual reflection",
-};
-
 function escapeXml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -125,42 +115,13 @@ async function downloadPixabayBackground(pillar: string, seed: number): Promise<
   });
 }
 
-// Try Pixabay first (real CC0 photos, high quota), fall back to Pollinations.ai
-// (free FLUX model, no key — but may rate-limit or return 402 since 2026-06-03).
+// CC0 photo backgrounds from Pixabay Images API.
+// (Previously fell back to Pollinations.ai when Pixabay failed, but Pollinations
+// started returning HTTP 402 on 2026-06-03 — the fallback was never useful so
+// we dropped it. If Pixabay fails, video-gen-long.ts handles it by cycling
+// whatever single image was passed in.)
 export async function downloadAIBackground(pillar: string, seed: number): Promise<Buffer> {
-  // Try Pixabay first
-  try {
-    return await downloadPixabayBackground(pillar, seed);
-  } catch (err) {
-    // Fall through to Pollinations on any Pixabay failure
-    void err;
-  }
-
-  // Fallback: Pollinations.ai FLUX model
-  const basePrompt = PILLAR_PROMPTS[pillar]
-    ?? "Stockholm Sweden, Scandinavian landscape, Nordic design, dramatic lighting";
-  const fullPrompt = `${basePrompt}, deep navy blue and forest green tones, dark cinematic background, no text, no watermark, no people faces, ultra quality`;
-  const encoded = encodeURIComponent(fullPrompt);
-  const url = `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`;
-
-  return new Promise((resolve, reject) => {
-    const get = (targetUrl: string, redirectsLeft = 5) => {
-      const mod = targetUrl.startsWith("https") ? https : require("node:http");
-      mod.get(targetUrl, (res: import("node:http").IncomingMessage) => {
-        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && redirectsLeft > 0) {
-          return get(res.headers.location, redirectsLeft - 1);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`Pollinations.ai HTTP ${res.statusCode}`));
-        }
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      }).on("error", reject);
-    };
-    get(url);
-  });
+  return downloadPixabayBackground(pillar, seed);
 }
 
 export interface PostImageOptions {

@@ -721,7 +721,6 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
             stat: posts.stat || posts.theme,
             subtext: posts.subtext || "",
             pillar: pillarName,
-            voiceText: posts.instagram,
             filename: `${dateString()}-${session}`,
             musicMood: contentType === "quote" ? "inspirational" : contentType === "news" ? "ambient" : "cultural",
           });
@@ -729,7 +728,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
         } catch (err) {
           log(ROLE, "warn", `Animated video failed: ${String(err).slice(0, 80)} — falling back to static video`);
           try {
-            videoPath = await generateVideo({ imagePath, voiceText: posts.instagram, filename: `${dateString()}-${session}` });
+            videoPath = await generateVideo({ imagePath, filename: `${dateString()}-${session}` });
             log(ROLE, "info", `Static video fallback: ${videoPath}`);
           } catch (err2) {
             log(ROLE, "warn", `Static video fallback also failed: ${String(err2).slice(0, 80)}`);

@@ -13,7 +13,6 @@ export interface AnimatedVideoOptions {
   stat: string;
   subtext?: string;
   pillar: string;
-  voiceText: string;      // unused — kept for backward-compat with callers (was TTS source)
   filename: string;
   outDir?: string;
   musicMood?: MusicMood;  // "inspirational" for quotes, "ambient" for news, "cultural" for general
@@ -25,7 +24,6 @@ export async function generateAnimatedVideo(opts: AnimatedVideoOptions): Promise
 
   const mp4Path  = path.join(outDir, `${opts.filename}.mp4`);
   const htmlPath = path.join(outDir, `${opts.filename}-anim.html`);
-  void opts.voiceText; // intentionally unused — kept for caller signature compat
 
   // Background music
   const musicPath = await pickMusicTrack(opts.musicMood ?? "ambient");
