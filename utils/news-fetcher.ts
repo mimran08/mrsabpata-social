@@ -44,14 +44,9 @@ const SOURCES: NewsSource[] = [
     ],
     linkPattern: /href="(https:\/\/schengenvisainfo\.com\/news\/[^"?]+)"/g,
   },
-  {
-    name: "Migrationsverket",
-    pages: [
-      "https://www.migrationsverket.se/English/About-the-Migration-Agency/News-archive.html",
-    ],
-    linkPattern: /href="(\/English\/About-the-Migration-Agency\/News-archive\/[^"?]+\.html)"/g,
-    baseUrl: "https://www.migrationsverket.se",
-  },
+  // (Migrationsverket English news-archive page returns 404 since at least
+  // 2026-06-03 — they reorganized the site. Removed from sources rather than
+  // hunting for the new URL, since The Local + Schengen cover the same news.)
 ];
 
 // ─── Relevance keywords ────────────────────────────────────────────────────────
