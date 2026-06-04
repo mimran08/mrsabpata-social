@@ -22,21 +22,11 @@ jobs:
       - name: Install Playwright browsers (Chromium + WebKit, no --with-deps on Mac)
         run: npx playwright install webkit chromium
 
-      - name: Restore platform sessions
-        env:
-          INSTAGRAM_COOKIES: ${{ secrets.INSTAGRAM_COOKIES }}
-          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-          YOUTUBE_SESSION: ${{ secrets.YOUTUBE_SESSION }}
-          X_COOKIES: ${{ secrets.X_COOKIES }}
-        run: |
-          mkdir -p company
-          echo "$INSTAGRAM_COOKIES" | base64 -d | gunzip > company/instagram-cookies.json
-          echo "$TIKTOK_COOKIES"    | base64 -d | gunzip > company/tiktok-cookies.json
-          echo "$YOUTUBE_COOKIES"   | base64 -d | gunzip > company/youtube-cookies.json
-          echo "$YOUTUBE_SESSION"   | base64 -d | gunzip > company/youtube-session.json
-          echo "$X_COOKIES"         | base64 -d | gunzip > company/x-cookies.json
-          echo "Sessions restored."
+      # (Removed 'Restore platform sessions' step that decoded base64-gzipped
+      # cookie secrets — they were the GH-cloud-runner approach and went stale
+      # within days. On the self-hosted Mac runner the cookies persist in the
+      # workspace from prior runs, and we refresh them locally from Safari via
+      # scripts/extract-cookies.py whenever needed.)
 
       - name: Set today's date
         id: date
