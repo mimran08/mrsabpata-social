@@ -15,6 +15,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Don't run `git clean -ffdx` between runs — preserves gitignored
+          # files like company/*-cookies.json, the rendered videos cache, and
+          # the local Pixabay-bg pool. The previous approach injected cookies
+          # from base64-gzipped GH secrets every run (legacy; secrets went
+          # stale within days). Now: refresh cookies locally via
+          # scripts/extract-cookies.py whenever they expire — the workspace
+          # carries them forward.
+          clean: false
 
       - name: Install npm dependencies
         run: npm ci
