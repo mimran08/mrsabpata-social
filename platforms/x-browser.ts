@@ -1,4 +1,4 @@
-import { webkit } from "playwright";
+import { chromium } from "playwright";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { log } from "../utils/logger.js";
@@ -6,12 +6,15 @@ import { log } from "../utils/logger.js";
 const ROLE = "X-Browser";
 const COOKIES_FILE = path.join("company", "x-cookies.json");
 
-// ─── Post a tweet using the saved Safari session cookies ─────────────────────
+// @MrSabPata's user ID — twid cookie MUST match this. 2026-05-24 incident:
+// extract-cookies.py grabbed @GeoCricLive's cookies because Safari was on that
+// account; without this guard the cron would happily post to the wrong account.
+const MRSABPATA_TWID = "u%3D1605805926";
 
-// Hard timeout wrapper: kills X after 90s so a silent hang doesn't starve the other
-// platforms. On CI runners (no recent stdout = stalled), GH cancels the whole job after
-// ~30 min of silence — that's how we lost two consecutive evening runs.
-const X_DEADLINE_MS = 90_000;
+// Hard timeout: kills X after 120s so a silent hang doesn't starve TT/IG/YT.
+// Chromium runs the same path as scripts/post-x-manual.ts (which lands in ~15s),
+// but allow extra headroom for cold browser boot on the runner.
+const X_DEADLINE_MS = 120_000;
 
 export async function postViaBrowser(text: string, imagePath?: string): Promise<void> {
   return Promise.race([
@@ -22,170 +25,94 @@ export async function postViaBrowser(text: string, imagePath?: string): Promise<
   ]);
 }
 
+interface CookieIn {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: string;
+}
+
+async function loadCookies(): Promise<CookieIn[]> {
+  try {
+    await fs.access(COOKIES_FILE);
+  } catch {
+    throw new Error("X cookies not found — run: python3 scripts/extract-cookies.py x");
+  }
+  const raw = JSON.parse(await fs.readFile(COOKIES_FILE, "utf-8")) as { cookies: CookieIn[] };
+  return raw.cookies.map(c => {
+    const ss = c.sameSite;
+    const sameSite = ss === "None" || ss === "Strict" || ss === "Lax" ? ss : "Lax";
+    return { ...c, sameSite };
+  });
+}
+
 async function _postViaBrowserImpl(text: string, imagePath?: string): Promise<void> {
-  // Hard-truncate to 270 chars (X non-Premium limit is 280; leaves a 10-char buffer
-  // for X's URL-weight counting). Tweets over 280 trigger a "Premium required" dialog
-  // that silently breaks the submit flow and can leave a garbled hashtag-only post.
+  // Hard-truncate to 270 chars (X non-Premium limit is 280; leaves a 10-char
+  // buffer for URL-weight counting). Tweets over 280 silently fail the submit.
   if (text.length > 270) {
     const hashtags = text.match(/#\w+(\s+#\w+)*\s*$/)?.[0] ?? "";
     const body = text.slice(0, text.length - hashtags.length);
-    const bodyBudget = 270 - hashtags.length - 4; // 4 for "...\n\n"
+    const bodyBudget = 270 - hashtags.length - 4;
     text = body.slice(0, bodyBudget).trimEnd() + "…\n\n" + hashtags.trim();
     text = text.slice(0, 270);
   }
 
-  // Load cookies extracted from real Safari session
-  let storageState: string | undefined;
-  try {
-    await fs.access(COOKIES_FILE);
-    storageState = COOKIES_FILE;
-  } catch {
-    throw new Error("X cookies not found — run: python3 scripts/extract-x-cookies.py");
+  const cookies = await loadCookies();
+  const twid = cookies.find(c => c.name === "twid")?.value;
+  if (twid !== MRSABPATA_TWID) {
+    throw new Error(`Cookies are for the wrong X account (twid=${twid}). Need ${MRSABPATA_TWID} (@MrSabPata). Switch Safari to @MrSabPata, then re-run: python3 scripts/extract-cookies.py x`);
   }
 
-  // headless: false — X's React compose box doesn't update state properly in headless WebKit
-  const browser = await webkit.launch({ headless: false });
-
-  const context = await browser.newContext({
-    storageState,
-    viewport: { width: 1280, height: 900 },
-  });
-
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.addCookies(cookies as Parameters<typeof context.addCookies>[0]);
   const page = await context.newPage();
 
   try {
-    // Go straight to compose — no need to find the button
     await page.goto("https://x.com/compose/post", { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(2500);
 
-    const url = page.url();
-    if (url.includes("/login") || url.includes("/i/flow")) {
-      await browser.close();
-      throw new Error("X session expired — re-run: python3 scripts/extract-x-cookies.py");
+    if (page.url().includes("/login") || page.url().includes("/i/flow")) {
+      throw new Error("X session expired — re-run: python3 scripts/extract-cookies.py x");
     }
 
-    log(ROLE, "info", "Compose dialog open");
-
-    // Diagnostic screenshot right after load (before any interaction)
-    await page.screenshot({ path: `logs/debug-x-loaded-${Date.now()}.png` }).catch(() => {});
-
-    // Dismiss any cookie/consent overlay using JS (bypasses pointer-events blocking)
-    await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll("button"));
-      const accept = btns.find(b => /accept.*cookies/i.test(b.textContent || "") || /refuse.*essential/i.test(b.textContent || ""));
-      if (accept) (accept as HTMLButtonElement).click();
-    });
-    await page.waitForTimeout(1500);
-
-    const textarea = page.locator('[data-testid="tweetTextarea_0"]').first();
-    await textarea.waitFor({ state: "visible", timeout: 20000 });
-
-    // Verifies typed content roughly matches input — normalizes whitespace and
-    // requires at least 80% of the original length. Prevents posting a garbled
-    // textarea (e.g. only a trailing hashtag) when input reordered/truncated.
-    const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
-    const expected = normalize(text);
-    const goodEnough = (actual: string) => {
-      const a = normalize(actual);
-      if (a.length < expected.length * 0.8) return false;
-      // first 30 chars of expected must appear in actual (catches "only hashtag survived")
-      const head = expected.slice(0, Math.min(30, expected.length));
-      return a.includes(head);
-    };
-
-    const clearAndType = async (strategy: "keyboard-type" | "clipboard"): Promise<string> => {
-      await textarea.click({ force: true });
-      await page.waitForTimeout(300);
-      // Clear via real keyboard events so React tracks the change
-      await page.keyboard.press("Meta+a");
-      await page.keyboard.press("Control+a");
-      await page.keyboard.press("Backspace");
-      await page.waitForTimeout(200);
-
-      if (strategy === "keyboard-type") {
-        await page.keyboard.type(text, { delay: 8 });
-      } else {
-        await page.evaluate((t) => {
-          const dt = new DataTransfer();
-          dt.setData("text/plain", t);
-          const el = document.querySelector('[data-testid="tweetTextarea_0"]') as HTMLElement;
-          if (el) {
-            el.focus();
-            el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-          }
-        }, text);
-      }
-      await page.waitForTimeout(600);
-      return await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
-    };
-
-    // Primary: real keyboard events (slowest but most React-compatible).
-    let typed = await clearAndType("keyboard-type");
-    if (goodEnough(typed)) {
-      log(ROLE, "info", `Text entered via keyboard.type (${typed.length}/${expected.length} chars)`);
-    } else {
-      log(ROLE, "warn", `keyboard.type produced unexpected text (${typed.length}/${expected.length}) — retrying with clipboard`);
-      typed = await clearAndType("clipboard");
-      if (goodEnough(typed)) {
-        log(ROLE, "info", `Text entered via clipboard (${typed.length}/${expected.length} chars)`);
-      } else {
-        await page.screenshot({ path: `logs/debug-x-text-verify-failed-${Date.now()}.png` }).catch(() => {});
-        throw new Error(`X text input verification failed (got ${typed.length}/${expected.length} chars) — aborting to avoid posting garbled content`);
-      }
-    }
+    const ta = page.locator('div[role="dialog"] [data-testid="tweetTextarea_0"]').first();
+    await ta.waitFor({ state: "visible", timeout: 15000 });
+    await ta.pressSequentially(text, { delay: 10 });
+    await page.waitForTimeout(300);
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // Attach image
     if (imagePath) {
-      try {
-        const fileInput = page.locator('input[type="file"][accept*="image"]').first();
-        await fileInput.setInputFiles(path.resolve(imagePath), { timeout: 5000 });
-        log(ROLE, "info", "Image attached — waiting for upload");
-        await page.waitForTimeout(12000); // give X time to process the upload (was 8s — bumped to 12s)
-      } catch {
-        log(ROLE, "warn", "Could not attach image — posting text only");
+      const fileInput = page.locator('div[role="dialog"] input[data-testid="fileInput"]').first();
+      await fileInput.setInputFiles(path.resolve(imagePath));
+      log(ROLE, "info", "Image attached — waiting for upload");
+      await page.waitForTimeout(3000);
+
+      const hasMedia = await page.evaluate(() =>
+        !!document.querySelector('div[role="dialog"] [data-testid="attachments"] img, div[role="dialog"] img[src*="blob:"]')
+      );
+      if (!hasMedia) {
+        await page.screenshot({ path: `logs/debug-x-no-media-${Date.now()}.png` }).catch(() => {});
+        throw new Error("Image preview did not appear after setInputFiles — aborting");
       }
     }
 
-    // Debug screenshot before submitting
-    await page.screenshot({ path: `logs/debug-x-pre-post-${Date.now()}.png` }).catch(() => {});
+    const beforeUrl = page.url();
+    await page.evaluate(() => {
+      const btn = document.querySelector('div[role="dialog"] [data-testid="tweetButton"]') as HTMLButtonElement | null;
+      if (btn?.getAttribute("aria-disabled") === "true") throw new Error("Post button is disabled (text over 280 chars?)");
+      btn?.click();
+    });
+    await page.waitForURL((u) => !u.toString().includes("/compose"), { timeout: 15000 }).catch(() => {});
 
-    // Dismiss any open autocomplete/hashtag dropdown — Escape closes it. Without
-    // this, Ctrl+Enter selects an autocomplete suggestion (e.g. #SwedenWorkCulture)
-    // instead of submitting, leaving a corrupted hashtag-only tweet.
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-
-    // Re-verify textarea content right before submit — autocomplete or image
-    // upload could have modified it after the initial type/verify.
-    const finalContent = await textarea.evaluate((el) => (el as HTMLElement).innerText?.trim() || "");
-    if (!goodEnough(finalContent)) {
-      await page.screenshot({ path: `logs/debug-x-pre-submit-bad-${Date.now()}.png` }).catch(() => {});
-      throw new Error(`X content corrupted between type and submit (got ${finalContent.length}/${expected.length} chars) — aborting`);
-    }
-    log(ROLE, "info", `Pre-submit content verified (${finalContent.length} chars)`);
-
-    // Click textarea to ensure focus (Escape may have moved focus off)
-    await textarea.click({ force: true });
-    await page.waitForTimeout(200);
-    await page.keyboard.press("Control+Enter");
-    log(ROLE, "info", "Submitted via Control+Enter");
-
-    // Successful submit navigates to /home or /<username>/status/<id>.
-    // Just checking dialog visibility is unreliable — wait for URL change.
-    const submitOK = await page.waitForURL((u) => !u.toString().includes("/compose"), { timeout: 12000 }).then(() => true).catch(() => false);
-
-    if (!submitOK) {
-      log(ROLE, "info", "URL didn't change — trying Post button click fallback");
-      const postBtn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first();
-      if (await postBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await postBtn.click({ force: true });
-      }
-      const submitOK2 = await page.waitForURL((u) => !u.toString().includes("/compose"), { timeout: 8000 }).then(() => true).catch(() => false);
-      if (!submitOK2) {
-        await page.screenshot({ path: `logs/debug-x-post-failed-${Date.now()}.png` }).catch(() => {});
-        throw new Error("X post failed — compose dialog still showing after submit attempts");
-      }
+    if (page.url() === beforeUrl) {
+      await page.screenshot({ path: `logs/debug-x-submit-failed-${Date.now()}.png` }).catch(() => {});
+      throw new Error("X submit failed — still on /compose. Possible duplicate-content rejection.");
     }
 
     log(ROLE, "info", "Posted to X via browser");
