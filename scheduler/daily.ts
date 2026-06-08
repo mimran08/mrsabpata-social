@@ -609,51 +609,50 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       }
     }
 
-    // Priority 2: curated post-bank (28 evergreen themes, date-rotated). Prefer this
-    // over Groq motivational quotes when news is exhausted — bank entries are
-    // human-curated practical content (visa rules, SFI, personnummer, IT jobs)
-    // and rotate deterministically so followers see varied themes across days.
-    // Quotes were running on 2-3 consecutive sessions when news dried up (2026-05-27
-    // evening + 2026-05-28 morning); post-bank gives 14 days of educational variety
-    // before the same theme can return.
-    if (!posts && bankHasContent) {
+    // Priority 2: Groq story-mode general — character-driven episode about the
+    // recurring cast (Ahmed/Fatima/Bilal) weaving in a daily topic. This is the
+    // PRIMARY format now (commit 4326942 pivot). Runs whenever news is exhausted.
+    if (!posts && process.env.GROQ_API_KEY) {
+      log(ROLE, "info", "Generating story-mode episode via Groq...");
       try {
-        log(ROLE, "info", `Using post bank (${bankList!.length} themes, date-rotated)...`);
-        posts = await getFromPostBank(session);
-        source = "bank";
-        log(ROLE, "info", `Post bank — Theme: ${posts.theme.slice(0, 60)}`);
+        posts = await generateViaGroq(session);
+        source = "groq";
+        log(ROLE, "info", `Story — Theme: ${posts.theme.slice(0, 60)} (panels: ${posts.panels?.length ?? 0})`);
       } catch (err) {
-        log(ROLE, "warn", `Post bank failed (${String(err).slice(0, 80)}) — falling back to quote / Groq`);
+        log(ROLE, "warn", `Story generation failed: ${String(err).slice(0, 80)} — falling back`);
       }
     }
 
-    // Priority 3: famous motivational quote (when news + bank are both unavailable —
-    // very rare; would mean bank file is missing or unreadable).
+    // Priority 3: motivational quote → story (quote inspires Ahmed/Fatima/Bilal
+    // scene). Runs only if priority 2 failed (Groq API down or content-policy
+    // refusal).
     if (!posts && process.env.GROQ_API_KEY) {
       try {
-        log(ROLE, "info", "No news / no bank — trying motivational quote...");
+        log(ROLE, "info", "Story-from-quote fallback...");
         const quoteResult = await generateFromQuote(session);
         if (quoteResult) {
           posts = quoteResult;
           source = "groq";
           contentType = "quote";
-          log(ROLE, "info", `Quote post — Theme: ${posts.theme.slice(0, 60)}`);
+          log(ROLE, "info", `Quote story — Theme: ${posts.theme.slice(0, 60)}`);
         }
       } catch (err) {
-        log(ROLE, "warn", `Quote generation failed: ${String(err).slice(0, 80)}`);
+        log(ROLE, "warn", `Quote story failed: ${String(err).slice(0, 80)}`);
       }
     }
 
-    // Priority 4: Groq random (last resort)
-    if (!posts && process.env.GROQ_API_KEY) {
-      log(ROLE, "info", "Generating via Groq (random)...");
+    // Priority 4: curated post-bank (hub-style, NO story / NO comic panels).
+    // True last resort — only fires if Groq is fully unreachable. Post-bank
+    // entries are evergreen hub content kept around so a Groq outage doesn't
+    // skip a day; the video then falls back to Pixabay backgrounds.
+    if (!posts && bankHasContent) {
       try {
-        posts = await generateViaGroq(session);
-        source = "groq";
-        log(ROLE, "info", `Generated — Theme: ${posts.theme.slice(0, 60)}`);
+        log(ROLE, "info", `Groq unavailable — using post bank (${bankList!.length} themes)`);
+        posts = await getFromPostBank(session);
+        source = "bank";
+        log(ROLE, "info", `Post bank — Theme: ${posts.theme.slice(0, 60)}`);
       } catch (err) {
-        log(ROLE, "warn", `Groq failed: ${String(err).slice(0, 80)}`);
-        throw err;
+        log(ROLE, "warn", `Post bank failed (${String(err).slice(0, 80)})`);
       }
     }
 
