@@ -10,11 +10,32 @@ import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-lo
 import { buildScriptDict } from "../utils/script-dict.js";
 import { generateVideo } from "../utils/video-gen.js";
 import { fetchRelevantNews } from "../utils/news-fetcher.js";
+import { generateComicPanels, type PanelSpec } from "../utils/comic-panels.js";
+import { CAST, STORY_RULES, PANEL_SPEC } from "./story-cast.js";
 import { log } from "../utils/logger.js";
 import { dateString } from "../utils/time.js";
 import { readBrain } from "../company/brain.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+
+// All three generators return this shape — `panels` empty if model omitted it
+// or if we couldn't parse the array (panel rendering then skips gracefully).
+interface GeneratedPosts {
+  x: string; instagram: string; tiktok: string; youtube: string;
+  stat: string; subtext: string; pillar: string; theme: string;
+  panels: PanelSpec[];
+}
+
+function parsePanels(raw: unknown): PanelSpec[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is { character?: unknown; scene?: unknown } => typeof p === "object" && p !== null)
+    .map(p => ({
+      character: typeof p.character === "string" ? p.character : "ahmed",
+      scene: typeof p.scene === "string" ? p.scene : "",
+    }))
+    .filter(p => p.scene.length > 10);
+}
 
 const ROLE = "DailyPoster";
 
@@ -120,19 +141,19 @@ const FAMOUS_QUOTES = [
 // ─── Per-day cache — enables retry without regenerating content or double-posting
 
 interface DayCache {
-  posts: { x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string };
+  posts: { x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string; panels?: PanelSpec[] };
   source: "groq" | "bank";
   imagePath?: string;
   bgImagePath?: string;
   videoPath?: string;
+  // Comic panel paths cached so retries don't burn Gemini quota regenerating them.
+  panelPaths?: string[];
   done: { x: boolean; tiktok: boolean; instagram: boolean; youtube: boolean };
 }
 
 // ─── Groq free API ─────────────────────────────────────────────────────────────
 
-async function generateViaGroq(session: "morning" | "evening"): Promise<{
-  x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string;
-}> {
+async function generateViaGroq(session: "morning" | "evening"): Promise<GeneratedPosts> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("GROQ_API_KEY not set");
 
@@ -161,55 +182,30 @@ async function generateViaGroq(session: "morning" | "evening"): Promise<{
     ? `\n\nUpcoming video to reference if natural: "${nextVideo.title}" (${nextVideo.publishDate}) — Key info: ${nextVideo.hook}`
     : "";
 
-  const prompt = `You are MrSabPata — writing social media posts to help Pakistanis navigate Swedish immigration, jobs, and life. Posts are news and information — specific facts, numbers, steps, deadlines. No personal stories, no anecdotes, no first-person narratives.
+  const prompt = `You are MrSabPata — daily storytelling brand for Pakistanis navigating Sweden (visa, jobs, life). Your audience follows Ahmed/Fatima/Bilal like a soap opera.
 
-Topic for this post: "${fact}"${crossPromo}
+${CAST}
 
-━━━ VOICE ━━━
-Natural Karachi Urdu + English mix.
-Keep English for: visa, work permit, personnummer, SFI, LinkedIn, salary, deadline, portfolio, IT, citizenship, interview, recruiter.
-Everything else in conversational Urdu.
+Today's topic to weave into the story: "${fact}"${crossPromo}
 
-BANNED — never write like this:
-❌ Personal stories: "Ek baar main ne...", "Ek raat...", "Main ne feel kiya..."
-❌ Anecdotes about other people: "Ek Pakistani developer ne mujhe bataya..."
-❌ Filler sentence starters: "Seriously,", "Honestly,", "Basically,", "I mean,", "Okay so,"
-❌ Emotional narrative framing
+This is NOT an info dump. Write a SHORT NARRATIVE EPISODE that organically reveals today's fact through what happens to one of the characters.
 
-━━━ INSTAGRAM (most important) ━━━
-Write practical, informational content with specific facts. 6-10 sentences.
+${STORY_RULES}
 
-Structure:
-• Line 1: Direct statement of the key fact, number, or rule — the hook
-• Lines 2-5: Specific details — exact numbers, steps, official sources, timelines, requirements
-• Lines 6-7: What action to take with this information
-• Last line: A specific question to the reader
-• End with 6-8 relevant hashtags on a new line
+━━━ FORMATS ━━━
+Instagram (PRIMARY — the full episode): 7-12 short paragraphs. Open with the hook moment. Use dialogue where natural ("Bilal bhai...", "Yaar Ahmed..."). End on the turn. NO bullet lists. End with 6-8 hashtags on a separate line.
+X: 200-260 chars. Open with the hook beat, reveal the situation + turn. 1 hashtag at end.
+TikTok: 130-180 chars. Punchy hook + key beat + cliffhanger close. 3 hashtags.
+YouTube: Title 50-75 chars, story-shaped (e.g. "Ahmed's first Migrationsverket letter — what nobody told him"). 2-3 sentences pitching the episode. 3-5 hashtags.
+stat: Image headline 3-7 words — a QUOTE or BEAT from the story (e.g. "Bilal bhai, what do I do?"), NOT a fact bullet.
+subtext: 4-8 words English, supports the stat (e.g. "11pm. The email arrives.").
+theme: One-line topic description for the archive.
+pillar: "1" (visa/immigration), "2" (jobs/work), "3" (housing/life), "4" (faith/community).
 
-Good example:
-"Sweden work permit minimum salary 1 June 2026 se SEK 33,390 hai — pehle SEK 29,680 thi. Yeh 13% increase hai.
-
-Agar job offer is se kam hai — yeh steps follow karo:
-1. Job offer letter mein exact monthly figure confirm karo
-2. Employer ko email karo: 'I've reviewed the new Swedish work permit requirements effective June 1 2026. Can the salary be adjusted to SEK 33,390?'
-3. Shortage occupation list check karo — 152 professions mein different thresholds apply hoti hain
-
-Official source: Migrationsverket.se par work permit section.
-Shortage list: Migrationsverket.se par 'brist yrken list 2026' search karo.
-
-Kya aap Sweden work permit apply kar rahe hain? Comment mein batao.
-
-#SwedenWorkPermit #SwedenVisa #PakistaniInSweden #SwedenImmigration #SwedenJobs #MrSabPata"
-
-━━━ OTHER FORMATS ━━━
-X post: MAX 260 chars. Key fact + what to do. End with 1 hashtag. No filler words.
-TikTok: One key fact as hook + 2-3 bullet points. Max 150 chars total. 3 hashtags.
-YouTube: Title on line 1 (max 80 chars, topic-first). 2-3 informational sentences. 3-5 hashtags.
-stat: The biggest number or fact as image headline. Max 6 words, English only.
-subtext: One English line with supporting context. Max 8 words.
+${PANEL_SPEC}
 
 Return ONLY valid JSON, no markdown:
-{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"one line topic description"}`;
+{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"...","pillar":"1","panels":[{"character":"ahmed","scene":"..."},{"character":"ahmed","scene":"..."},...]}`;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -249,6 +245,7 @@ Return ONLY valid JSON, no markdown:
     stat: stringify(raw.stat),
     subtext: stringify(raw.subtext),
     theme: stringify(raw.theme),
+    panels: parsePanels(raw.panels),
   };
 
   return { ...posts, pillar: pillarKey };
@@ -256,47 +253,37 @@ Return ONLY valid JSON, no markdown:
 
 // ─── Quote-driven generation ───────────────────────────────────────────────────
 
-async function generateFromQuote(session: "morning" | "evening"): Promise<{
-  x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string;
-} | null> {
+async function generateFromQuote(session: "morning" | "evening"): Promise<GeneratedPosts | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
 
   const quote = FAMOUS_QUOTES[Math.floor(Math.random() * FAMOUS_QUOTES.length)];
   log(ROLE, "info", `Quote: "${quote.text.slice(0, 60)}..." — ${quote.author}`);
 
-  const prompt = `You are MrSabPata — writing for Pakistanis and South Asians who are living in Sweden or seriously considering moving there. Real people dealing with visa stress, job hunts, housing queues, loneliness, and building a new life far from home.
+  const prompt = `You are MrSabPata — daily storytelling brand for Pakistanis navigating Sweden. Audience follows Ahmed/Fatima/Bilal episode by episode.
 
-━━━ TODAY'S QUOTE ━━━
-"${quote.text}"
-— ${quote.author}
+${CAST}
 
-━━━ YOUR JOB ━━━
-Write social media posts that connect this quote to the real immigrant/newcomer experience in Sweden.
-Make it personal and grounded — not generic motivation. How does this quote speak to someone waiting months for their permit, struggling to get their first Swedish job, sitting alone in a new city?
+Today's spark: this quote from ${quote.author} — "${quote.text}"
 
-━━━ VOICE ━━━
-Natural Karachi Urdu + English mix. Warm, like a friend who understands the struggle.
-Keep English for: visa, work permit, personnummer, SFI, citizenship, Migrationsverket, salary.
+Write an episode where the quote's truth shows up organically in something happening to one of the characters. Don't preach the quote — let the story embody it. The character doesn't need to recite the quote (they can, briefly, if it lands naturally).
 
-BANNED:
-❌ Personal stories ("Ek baar main ne...")
-❌ "Seriously,", "Honestly,", "Basically," as openers
-❌ Generic "believe in yourself" empty motivation
-❌ Made-up facts
+${STORY_RULES}
 
 ━━━ FORMATS ━━━
-Instagram: 6-8 sentences. Line 1 = the quote itself in Urdu/English mix. Lines 2-5 = what it means for someone building life in Sweden. End with a relatable question. 6-8 hashtags.
-X: MAX 260 chars. Quote snippet + what it means for immigrants. 1 hashtag.
-TikTok: Quote hook + 2-3 connection points. Max 150 chars. 3 hashtags.
-YouTube: Title line with author name. 2-3 sentences connecting to immigrant journey. 3-5 hashtags.
-stat: The quote shortened to max 7 words — most powerful part.
-subtext: "— ${quote.author}" attribution line.
-theme: One line topic description.
-pillar: "1" (visa/immigration), "2" (jobs), "3" (life/housing), "4" (faith/mindset)
+Instagram: 7-12 short paragraphs. Episode opens with the hook beat. Dialogue welcome. End on the turn. 6-8 hashtags on a new line.
+X: 200-260 chars. Hook beat + situation + turn. 1 hashtag at end.
+TikTok: 130-180 chars. Hook + key beat + cliffhanger. 3 hashtags.
+YouTube: Title 50-75 chars, story-shaped. 2-3 sentences pitching the episode. 3-5 hashtags.
+stat: Image headline 3-7 words — a QUOTE or BEAT from the story (not the famous quote itself, unless it IS spoken by a character in this scene).
+subtext: 4-8 words English. Could be "— ${quote.author}" attribution OR a beat — your call.
+theme: One-line description for the archive.
+pillar: "1" visa, "2" jobs, "3" housing/life, "4" faith/community (lean 4 for quote-driven).
+
+${PANEL_SPEC}
 
 Return ONLY valid JSON, no markdown:
-{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"...","pillar":"4"}`;
+{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"...","pillar":"4","panels":[{"character":"...","scene":"..."},...]}`;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -330,14 +317,13 @@ Return ONLY valid JSON, no markdown:
     youtube: str(raw.youtube), stat: str(raw.stat) || quote.text.slice(0, 40),
     subtext: str(raw.subtext) || `— ${quote.author}`,
     theme: str(raw.theme), pillar: str(raw.pillar) || "4",
+    panels: parsePanels(raw.panels),
   };
 }
 
 // ─── News-driven generation (TheLocal.se + other sources → Groq) ──────────────
 
-async function generateFromNews(session: "morning" | "evening"): Promise<{
-  x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string;
-} | null> {
+async function generateFromNews(session: "morning" | "evening"): Promise<GeneratedPosts | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
 
@@ -380,7 +366,9 @@ async function generateFromNews(session: "morning" | "evening"): Promise<{
   const pick = fresh[Math.floor(Math.random() * Math.min(3, fresh.length))];
   log(ROLE, "info", `News: "${pick.title.slice(0, 70)}" (score ${pick.relevanceScore}, ${fresh.length}/${articles.length} fresh)`);
 
-  const prompt = `You are MrSabPata — writing social media posts for Pakistanis and South Asians living in or moving to Sweden. Your audience are real people: newcomers, visa applicants, workers, students, families.
+  const prompt = `You are MrSabPata — daily storytelling brand for Pakistanis navigating Sweden. Audience follows Ahmed/Fatima/Bilal episode by episode.
+
+${CAST}
 
 ━━━ TODAY'S NEWS ━━━
 Title: ${pick.title}
@@ -388,29 +376,24 @@ Source: ${pick.url}
 Summary: ${pick.summary}
 
 ━━━ YOUR JOB ━━━
-Write posts based ONLY on this news story. Explain what it means for immigrants and newcomers in Sweden. Add practical context they need — what to do, what it changes, what to watch out for.
+Write an episode where this news lands on one of the characters. Show its impact through their reaction, conversation, or decision — NOT through a summary or recap. The news fact must come out THROUGH the story, not preached. Stay true to what the source says — no invented numbers.
 
-━━━ VOICE ━━━
-Natural Karachi Urdu + English mix. Keep English for: visa, permit, personnummer, SFI, salary, citizenship, Migrationsverket, deadline, court, law.
-Everything else in conversational Urdu.
-
-BANNED — never write:
-❌ "Ek baar main ne...", "Ek raat...", personal stories
-❌ "Seriously,", "Honestly,", "Basically," — filler starters
-❌ Made-up numbers or facts not in the source
+${STORY_RULES}
 
 ━━━ FORMATS ━━━
-Instagram (most important): 6-10 sentences. Line 1 = the key news fact as a hook. Lines 2-5 = what it means, what changes, practical steps. Last line = question to reader. End with 6-8 hashtags.
-X: MAX 260 chars. Key fact + what it means for immigrants. 1 hashtag.
-TikTok: Hook fact + 2-3 bullet points. Max 150 chars. 3 hashtags.
-YouTube: Title line 1 (max 80 chars). 2-3 informational sentences. 3-5 hashtags.
-stat: The biggest fact/number as image headline. Max 6 words, English only.
-subtext: One English supporting line. Max 8 words.
-theme: One line topic description.
-pillar: Use "1" (visa/immigration), "2" (jobs/work), "3" (housing/life), or "4" (faith/community)
+Instagram: 7-12 short paragraphs. Episode opens with the moment the news hits. Use dialogue. End on the turn. 6-8 hashtags on a new line.
+X: 200-260 chars. Hook beat + situation + turn. 1 hashtag at end.
+TikTok: 130-180 chars. Hook + key beat + cliffhanger. 3 hashtags.
+YouTube: Title 50-75 chars, story-shaped. 2-3 sentences pitching the episode. 3-5 hashtags.
+stat: Image headline 3-7 words — a QUOTE or BEAT from the story, NOT the news headline.
+subtext: 4-8 words English supporting the stat.
+theme: One-line description.
+pillar: "1" visa, "2" jobs, "3" housing/life, "4" faith/community (pick based on what the news is about).
+
+${PANEL_SPEC}
 
 Return ONLY valid JSON, no markdown:
-{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"...","pillar":"1"}`;
+{"x":"...","instagram":"...","tiktok":"...","youtube":"...","stat":"...","subtext":"...","theme":"...","pillar":"1","panels":[{"character":"...","scene":"..."},...]}`;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -458,6 +441,7 @@ Return ONLY valid JSON, no markdown:
     x: str(raw.x), instagram: str(raw.instagram), tiktok: str(raw.tiktok),
     youtube: str(raw.youtube), stat: str(raw.stat), subtext: str(raw.subtext),
     theme: str(raw.theme), pillar: str(raw.pillar) || "1",
+    panels: parsePanels(raw.panels),
   };
 }
 
@@ -497,6 +481,7 @@ async function getFromPostBank(session: "morning" | "evening"): Promise<{
 
 async function archivePost(session: "morning" | "evening", posts: {
   x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string;
+  panels?: PanelSpec[];
 }, source: "groq" | "bank"): Promise<string> {
   const dir = path.join("company", "daily-posts");
   await fs.mkdir(dir, { recursive: true });
@@ -538,6 +523,14 @@ ${posts.youtube}
 
 ---
 
+## Comic panels (story mode)
+
+${posts.panels && posts.panels.length > 0
+  ? posts.panels.map((p, i) => `${i + 1}. **${p.character}** — ${p.scene}`).join("\n")
+  : "_(none — fell back to Pixabay backgrounds)_"}
+
+---
+
 *Generated ${new Date().toISOString()}*
 `;
 
@@ -573,12 +566,13 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   };
 
   // ── Content: use cache if exists, otherwise generate fresh ───────────────────
-  let posts: { x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string } | undefined;
+  let posts: { x: string; instagram: string; tiktok: string; youtube: string; stat: string; subtext: string; pillar: string; theme: string; panels?: PanelSpec[] } | undefined;
   let source: "groq" | "bank" | undefined;
   let contentType: "news" | "quote" | "general" = "general";
   let imagePath: string | undefined;
   let bgImagePath: string | undefined;
   let videoPath: string | undefined;
+  let panelPaths: string[] | undefined;
 
   if (cache) {
     // Retry run — reuse everything from cache
@@ -587,6 +581,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     imagePath = cache.imagePath;
     bgImagePath = cache.bgImagePath;
     videoPath = cache.videoPath;
+    panelPaths = cache.panelPaths;
   } else {
     // First run — generate content
     const bankPath = path.join("company", "post-bank.json");
@@ -696,13 +691,31 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
           const script = buildScriptDict(posts);
           log(ROLE, "info", `Long video — Hook: ${script.hook.slice(0, 80)}`);
           log(ROLE, "info", `Long video — ${script.points.length} points, stat=${script.stat ? "yes" : "no"}, action=${script.actionLine ? "yes" : "no"}`);
-          // Generate 3 distinct AI backgrounds for scene variety
-          const bgPool = await generateBackgroundPool(pillarName, 3, `${dateString()}-${session}`);
+
+          // Backgrounds: story posts use COMIC PANELS featuring the recurring
+          // cast (Ahmed/Fatima/Bilal). If the Groq output didn't include a
+          // panels[] array, or Gemini fails, we fall back to Pixabay stock —
+          // worse but better than no video. (No cache?.panelPaths check here
+          // because this branch only runs in the first-run else-cache path;
+          // retries take the cached videoPath directly and skip rendering.)
+          if (posts.panels && posts.panels.length > 0) {
+            panelPaths = await generateComicPanels({
+              panels: posts.panels,
+              filename: `${dateString()}-${session}`,
+            });
+          }
+          let bgImagePaths: string[] | undefined = panelPaths && panelPaths.length >= 3 ? panelPaths : undefined;
+          if (!bgImagePaths) {
+            log(ROLE, "info", `Comic panels unavailable (${panelPaths?.length ?? 0}) — falling back to Pixabay background pool`);
+            const bgPool = await generateBackgroundPool(pillarName, 3, `${dateString()}-${session}`);
+            bgImagePaths = bgPool.length ? bgPool : undefined;
+          }
+
           videoPath = await generateLongVideo({
             script,
             imagePath,
             bgImagePath,
-            bgImagePaths: bgPool.length ? bgPool : undefined,
+            bgImagePaths,
             pillar: pillarName,
             filename: `${dateString()}-${session}`,
             pacingMode: "many-short",
@@ -741,9 +754,9 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     const initialDone = { x: false, tiktok: false, instagram: false, youtube: false };
     try {
       await fs.writeFile(cacheFile, JSON.stringify({
-        posts, source, imagePath, bgImagePath, videoPath, done: initialDone,
+        posts, source, imagePath, bgImagePath, videoPath, panelPaths, done: initialDone,
       }, null, 2), "utf-8");
-      cache = { posts, source: source!, imagePath, videoPath, done: initialDone };
+      cache = { posts, source: source!, imagePath, videoPath, panelPaths, done: initialDone };
     } catch { /* non-fatal */ }
   }
 
