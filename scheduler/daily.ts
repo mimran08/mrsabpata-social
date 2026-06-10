@@ -11,7 +11,7 @@ import { buildScriptDict } from "../utils/script-dict.js";
 import { generateVideo } from "../utils/video-gen.js";
 import { fetchRelevantNews } from "../utils/news-fetcher.js";
 import { generateComicPanels, type PanelSpec } from "../utils/comic-panels.js";
-import { CAST, STORY_RULES, PANEL_SPEC } from "./story-cast.js";
+import { CAST, STORY_RULES, PANEL_SPEC, IG_ENGAGEMENT_RULES } from "./story-cast.js";
 import { log } from "../utils/logger.js";
 import { dateString } from "../utils/time.js";
 import { readBrain } from "../company/brain.js";
@@ -202,6 +202,8 @@ subtext: 4-8 words English, supports the stat (e.g. "11pm. The email arrives.").
 theme: One-line topic description for the archive.
 pillar: "1" (visa/immigration), "2" (jobs/work), "3" (housing/life), "4" (faith/community).
 
+${IG_ENGAGEMENT_RULES}
+
 ${PANEL_SPEC}
 
 Return ONLY valid JSON, no markdown:
@@ -279,6 +281,8 @@ stat: Image headline 3-7 words — a QUOTE or BEAT from the story (not the famou
 subtext: 4-8 words English. Could be "— ${quote.author}" attribution OR a beat — your call.
 theme: One-line description for the archive.
 pillar: "1" visa, "2" jobs, "3" housing/life, "4" faith/community (lean 4 for quote-driven).
+
+${IG_ENGAGEMENT_RULES}
 
 ${PANEL_SPEC}
 
@@ -389,6 +393,8 @@ stat: Image headline 3-7 words — a QUOTE or BEAT from the story, NOT the news 
 subtext: 4-8 words English supporting the stat.
 theme: One-line description.
 pillar: "1" visa, "2" jobs, "3" housing/life, "4" faith/community (pick based on what the news is about).
+
+${IG_ENGAGEMENT_RULES}
 
 ${PANEL_SPEC}
 
@@ -765,25 +771,16 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   const done = { ...(cache?.done ?? { x: false, tiktok: false, instagram: false, youtube: false }) };
 
   // ── X ────────────────────────────────────────────────────────────────────────
-  // Now automated via Chromium (was webkit, which hung 90s on X's bot challenge).
-  // Same Chromium path scripts/post-x-manual.ts uses successfully (~15s/post).
-  // Image: prefer <stem>-x.png if it exists, else fall back to the main image.
-  if (!done.x) {
-    try {
-      const stem = `${dateString()}-${session}`;
-      const xSpecific = path.join("company", "post-images", `${stem}-x.png`);
-      const xImage = await fs.access(xSpecific).then(() => xSpecific).catch(() => imagePath);
-      await postViaBrowser(posts.x, xImage);
-      log(ROLE, "info", "✅ X: posted via browser");
-      done.x = true;
-      await saveDone(done);
-    } catch (err) {
-      log(ROLE, "warn", `X failed: ${String(err).slice(0, 200)}`);
-    }
-  } else {
-    log(ROLE, "info", "⏭ X: already posted — skipping");
-  }
-  void postTweet; // legacy API path kept for reference
+  // CUT 2026-06-10: 30-day stats showed 2 followers, 0 engagement on 8 tweets
+  // — story-mode videos don't translate to X (character-driven episodes need
+  // the video to make sense; X is text-first). Removing from cron entirely
+  // saves ~50s per run and removes the twid-guard maintenance burden.
+  // The X branch is intentionally kept dead-coded (auto-success) so the
+  // RETRY_NEEDED summary logic + done.x cache shape don't change. To revive:
+  // delete the line below + uncomment the original block from commit 4bc8c65.
+  done.x = true;
+  void postViaBrowser; void postTweet;
+  log(ROLE, "info", "⏭ X: disabled (2 followers, 0 engagement)");
 
   // ── TikTok ───────────────────────────────────────────────────────────────────
   if (!done.tiktok) {
@@ -820,7 +817,15 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   }
 
   // ── YouTube ──────────────────────────────────────────────────────────────────
-  if (!done.youtube) {
+  // 2026-06-10: YT is bleeding -63 subs/30d due to legacy-audience mismatch.
+  // Reduced from 2/day to 1/day (evening only) to let the algorithm breathe
+  // instead of spamming uninterested subs. Channel description was updated
+  // around the same time to signal the Sweden-immigration niche to the algo.
+  if (session === "morning") {
+    done.youtube = true;
+    log(ROLE, "info", "⏭ YouTube: skipped (morning — daily cadence reduced to evening only)");
+    void uploadYouTubeShortAPI; void uploadYouTubeShortBrowser;
+  } else if (!done.youtube) {
     if (videoPath) {
       const hasAPIcreds = process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET && process.env.YOUTUBE_REFRESH_TOKEN;
       try {

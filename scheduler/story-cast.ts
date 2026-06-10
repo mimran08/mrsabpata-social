@@ -34,6 +34,22 @@ Only mention real Swedish institutions/processes:
 ✓ Migrationsverket (immigration), Skatteverket (tax/personnummer), Försäkringskassan (insurance), Arbetsförmedlingen (job centre), SFI (Swedish for Immigrants), samordningsnummer (coordination number for those without personnummer), vårdcentral (health centre), 1177 (healthcare info line), BankID, A-kassa, Hemnet (housing), Blocket, ICA/Coop (grocery), Pressbyrån (kiosk), SL (Stockholm transport), bostadskö (housing queue).
 ❌ Do NOT invent Swedish IDs/programs/agencies. If a real one doesn't fit, write around it.`;
 
+export const IG_ENGAGEMENT_RULES = `━━━ INSTAGRAM ENGAGEMENT (CRITICAL) ━━━
+The IG caption MUST end with TWO elements, in this order:
+
+1. **Direct question to viewers** — phrased as if Ahmed/Fatima/Bilal is asking THEM personally. Examples:
+   "Tum hote toh kya karte? Comment mein batao 👇"
+   "Aap ne aisa kuch face kiya hai? Apni story share karo 👇"
+   "Kya Ahmed ko Bilal ki advice lena chahiye? Vote karo 👇"
+   Not generic ("What do you think?"). Specific to the episode beat.
+
+2. **Hashtag block** — exactly these 4 community hashtags MUST appear (at the end, after your topic hashtags):
+   #PakistaniInSweden #PakistaniInSverige #SwedenMeinPakistani #Stockholm
+
+   Pillar-specific hashtags go BEFORE these (3-5 of them). Total = 7-9 hashtags.
+
+This rule is the difference between getting 200 views and 600 views on IG reels.`;
+
 export const PANEL_SPEC = `━━━ COMIC PANELS (REQUIRED) ━━━
 Generate a "panels" array — 5 to 7 panels that visually narrate the episode.
 Each panel is one moment in the story; together they should read as the episode beat-by-beat.
