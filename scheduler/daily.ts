@@ -844,7 +844,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       try {
         if (hasAPIcreds) {
           try {
-            await uploadYouTubeShortAPI(posts.youtube, videoPath);
+            await uploadYouTubeShortAPI(posts.youtube, videoPath, imagePath);
             log(ROLE, "info", "✅ YouTube: uploaded via API");
           } catch (apiErr) {
             log(ROLE, "warn", `YouTube API failed: ${String(apiErr).slice(0, 100)} — trying browser`);

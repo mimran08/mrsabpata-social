@@ -110,18 +110,47 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
 
   if (!webmFile) throw new Error("Playwright did not produce a video file");
 
-  // Mux audio — music if available, else silent.
+  // Mux audio + PREPEND a 0.6s thumbnail still at the start. Every platform
+  // (YT Shorts / TikTok / IG Reel) auto-picks the first frame as the post's
+  // preview thumbnail unless we override it explicitly. The video's first
+  // real frame is the fade-in-from-black of scene 1 — fully blank — so the
+  // preview was blank dark navy and viewers couldn't tell what the post was
+  // about. Prepending the branded post image (which already has the stat
+  // quote + cast subtitle baked in) gives every platform a readable preview.
+  // YouTube uploader also calls thumbnails.set with this same image so the
+  // search / channel-page thumbnail matches.
   const fadeOut = Math.max(0, totalDuration - 2);
+  const INTRO_SEC = 0.6;
+  const thumbPath = opts.imagePath; // 1080×1080 branded image with stat + subtext
+  const finalDuration = totalDuration + INTRO_SEC;
+  const audioFadeOutStart = fadeOut + INTRO_SEC;
+
   if (musicPath) {
     execSync(
-      `ffmpeg -y -i "${webmFile}" -i "${musicPath}" ` +
-      `-filter_complex "[1:a]volume=0.30,afade=t=out:st=${fadeOut}:d=2[bg]" ` +
-      `-map 0:v -map "[bg]" -c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -t ${totalDuration} "${mp4Path}"`,
+      `ffmpeg -y ` +
+      `-loop 1 -t ${INTRO_SEC} -i "${thumbPath}" ` +
+      `-i "${webmFile}" ` +
+      `-i "${musicPath}" ` +
+      `-filter_complex "` +
+        `[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x0d1b2a,setsar=1,fps=30[intro];` +
+        `[1:v]fps=30,scale=1080:1920,setsar=1[main];` +
+        `[intro][main]concat=n=2:v=1:a=0[v];` +
+        `[2:a]volume=0.30,adelay=${Math.round(INTRO_SEC * 1000)}|${Math.round(INTRO_SEC * 1000)},afade=t=out:st=${audioFadeOutStart}:d=2[bg]` +
+      `" ` +
+      `-map "[v]" -map "[bg]" -c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac -b:a 128k -t ${finalDuration} "${mp4Path}"`,
       { stdio: "ignore" }
     );
   } else {
     execSync(
-      `ffmpeg -y -i "${webmFile}" -c:v libx264 -preset fast -pix_fmt yuv420p -t ${totalDuration} "${mp4Path}"`,
+      `ffmpeg -y ` +
+      `-loop 1 -t ${INTRO_SEC} -i "${thumbPath}" ` +
+      `-i "${webmFile}" ` +
+      `-filter_complex "` +
+        `[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x0d1b2a,setsar=1,fps=30[intro];` +
+        `[1:v]fps=30,scale=1080:1920,setsar=1[main];` +
+        `[intro][main]concat=n=2:v=1:a=0[v]` +
+      `" ` +
+      `-map "[v]" -c:v libx264 -preset fast -pix_fmt yuv420p -t ${finalDuration} "${mp4Path}"`,
       { stdio: "ignore" }
     );
   }

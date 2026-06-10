@@ -84,8 +84,11 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-// Uploads a local MP4 as a YouTube Short (1080×1920 auto-detected by YouTube)
-export async function uploadYouTubeShort(text: string, videoPath: string): Promise<string> {
+// Uploads a local MP4 as a YouTube Short (1080×1920 auto-detected by YouTube).
+// Optional `thumbnailPath` — if provided, also sets a custom thumbnail via
+// thumbnails.set after upload. Without it YouTube auto-grabs a video frame
+// which can be blank (the video starts on a fade-in from a dark BG).
+export async function uploadYouTubeShort(text: string, videoPath: string, thumbnailPath?: string): Promise<string> {
   const missingKeys = ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
     .filter(k => !process.env[k]);
   if (missingKeys.length) {
@@ -154,5 +157,31 @@ export async function uploadYouTubeShort(text: string, videoPath: string): Promi
   const result = await uploadRes.json() as { id: string };
   const videoId = result.id;
   log(ROLE, "info", `Uploaded to YouTube: https://youtube.com/shorts/${videoId}`);
+
+  // Step 3 (optional): set a custom thumbnail. YouTube otherwise auto-grabs
+  // a frame which may be the fade-in-from-black start of the video.
+  if (thumbnailPath) {
+    try {
+      const thumbBytes = await fs.readFile(thumbnailPath);
+      const ext = thumbnailPath.toLowerCase().split(".").pop() ?? "png";
+      const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+      const thumbRes = await fetch(
+        `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${videoId}&uploadType=media`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": mime },
+          body: thumbBytes,
+        }
+      );
+      if (thumbRes.ok) {
+        log(ROLE, "info", `Custom thumbnail set (${(thumbBytes.byteLength / 1024).toFixed(0)} KB)`);
+      } else {
+        log(ROLE, "warn", `Thumbnail set failed ${thumbRes.status}: ${(await thumbRes.text()).slice(0, 200)} — video remains uploaded`);
+      }
+    } catch (err) {
+      log(ROLE, "warn", `Thumbnail set error (non-fatal): ${String(err).slice(0, 150)}`);
+    }
+  }
+
   return videoId;
 }
