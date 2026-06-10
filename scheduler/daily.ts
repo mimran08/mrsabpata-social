@@ -3,7 +3,7 @@ import { postViaBrowser } from "../platforms/x-browser.js";
 import { postViaTikTok } from "../platforms/tiktok-browser.js";
 import { uploadYouTubeShort as uploadYouTubeShortAPI } from "../platforms/youtube-api.js";
 import { uploadYouTubeShort as uploadYouTubeShortBrowser } from "../platforms/youtube-browser.js";
-import { postViaInstagram } from "../platforms/instagram-browser.js";
+import { postViaInstagram, postViaInstagramStory } from "../platforms/instagram-browser.js";
 import { generatePostImage } from "../utils/image-gen.js";
 import { generateAnimatedVideo } from "../utils/video-gen-animated.js";
 import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-long.js";
@@ -814,6 +814,19 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     }
   } else {
     log(ROLE, "info", "⏭ Instagram: already posted — skipping");
+  }
+
+  // ── Instagram Story (best-effort, after the Reel) ────────────────────────────
+  // 24h ephemeral, no caption — drives daily presence + DM signals which the
+  // IG algorithm scores. Failure here is logged but does NOT throw: if the
+  // Reel already landed (above), the day's primary distribution is intact.
+  if (done.instagram && videoPath) {
+    try {
+      log(ROLE, "info", "Posting Instagram Story (best-effort)...");
+      await postViaInstagramStory(videoPath);
+    } catch (err) {
+      log(ROLE, "warn", `Instagram Story failed (non-fatal): ${String(err).slice(0, 120)}`);
+    }
   }
 
   // ── YouTube ──────────────────────────────────────────────────────────────────

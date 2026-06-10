@@ -333,3 +333,221 @@ async function clickLocatorButton(page: import("playwright").Page, pattern: RegE
     log("Instagram-Browser", "warn", `Button not found: ${pattern}`);
   });
 }
+
+// ── Story posting ────────────────────────────────────────────────────────────
+//
+// Posts a video as an Instagram Story (24h ephemeral). Distinct from Reel — no
+// caption, no music selection, no aspect-ratio dialog. Called by the scheduler
+// AFTER the Reel posts successfully, so even if Story breaks the main post is
+// already up. Failure here logs a warn but does NOT throw.
+//
+// The Story creator on IG web has a different entry point than the "+" menu:
+// it's accessible via instagram.com/stories/create or by clicking the "Create"
+// option in the dropdown, then "Story". We try the deep URL first.
+export async function postViaInstagramStory(mediaPath: string): Promise<void> {
+  const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
+  const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
+  if (!hasSession && !hasCookies) {
+    throw new Error("Instagram not set up — run: python3 scripts/extract-cookies.py");
+  }
+  const storageState = hasSession ? SESSION_FILE : COOKIES_FILE;
+
+  const browser = await webkit.launch({ headless: false });
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 1280, height: 900 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+    Object.defineProperty(window, "devicePixelRatio", { get: () => 2 });
+  });
+  const page = await context.newPage();
+
+  try {
+    log(ROLE, "info", "Opening IG home for Story upload...");
+    await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(4000);
+    if (page.url().includes("/accounts/login")) {
+      throw new Error("Instagram session expired (story flow)");
+    }
+
+    // Dismiss notif prompt if shown
+    await page.locator("button").filter({ hasText: /^not now$/i }).first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(800);
+
+    // Open Create menu (same path as the Reel flow)
+    const createCandidates = [
+      page.locator("a[href='/create/style/']").first(),
+      page.locator("a[href*='create']").first(),
+      page.locator("[aria-label='Create'], [aria-label='New post']").first(),
+      page.locator("[aria-label*='create' i]").first(),
+      page.locator("a, div[role='button'], span[role='button']").filter({ hasText: /^create$/i }).first(),
+    ];
+    for (const loc of createCandidates) {
+      if (await loc.isVisible({ timeout: 2500 }).catch(() => false)) {
+        await loc.click({ force: true });
+        break;
+      }
+    }
+    await page.waitForTimeout(2000);
+
+    // Click "Story" menu item (not "Post" — that goes to Reel)
+    const storyClicked = await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll("a, [role='menuitem'], [role='button'], span")) as HTMLElement[];
+      const m = items.find(el => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return t === "story" || t === "story story" || /story/i.test(el.getAttribute("aria-label") || "");
+      });
+      if (m) { (m.closest("a, [role='menuitem'], [role='button']") as HTMLElement || m).click(); return true; }
+      return false;
+    });
+    if (!storyClicked) {
+      await page.screenshot({ path: `logs/debug-ig-story-menu-${Date.now()}.png` }).catch(() => {});
+      throw new Error("Could not find Story option in IG Create menu");
+    }
+    log(ROLE, "info", "Clicked Story in Create menu");
+    await page.waitForTimeout(3000);
+
+    // File input picker — set the video
+    const fileInput = page.locator('input[type="file"]').first();
+    if (!await fileInput.isVisible({ timeout: 5000 }).catch(() => true)) {
+      // input is often display:none; try setting anyway
+    }
+    await fileInput.setInputFiles(path.resolve(mediaPath));
+    log(ROLE, "info", `Story media uploaded: ${mediaPath}`);
+    await page.waitForTimeout(8000);
+    await page.screenshot({ path: `logs/debug-ig-story-uploaded-${Date.now()}.png` }).catch(() => {});
+
+    // Click "Share to story" / "Send" / "Add to story"
+    const sent = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button, [role='button']")) as HTMLElement[];
+      const m = buttons.find(b => {
+        const t = (b.innerText || b.textContent || "").trim().toLowerCase();
+        return t === "share to story" || t === "add to story" || t === "share" || t === "send" || t === "send to";
+      });
+      if (m) { m.click(); return (m.innerText || m.textContent || "").trim().slice(0, 40); }
+      return null;
+    });
+    if (!sent) {
+      await page.screenshot({ path: `logs/debug-ig-story-share-${Date.now()}.png` }).catch(() => {});
+      throw new Error("Could not find Share/Send button on Story editor");
+    }
+    log(ROLE, "info", `Story share button clicked: "${sent}"`);
+    await page.waitForTimeout(10000);
+    log(ROLE, "info", "✅ Story posted (best-effort — IG doesn't always confirm)");
+  } finally {
+    await browser.close();
+  }
+}
+
+// ── Carousel posting ─────────────────────────────────────────────────────────
+//
+// Posts a multi-image carousel (up to 10 images). Lower-frequency than Reels
+// — call from a weekly cron, not the daily one. Carousel posts get ~1.4× the
+// reach of single posts per IG's reported algorithm preference.
+//
+// Reuses the Reel/Post upload flow but uploads multiple files in one step and
+// skips the cover-trim wizard (which is video-specific).
+export async function postViaInstagramCarousel(caption: string, imagePaths: string[]): Promise<void> {
+  if (imagePaths.length < 2) throw new Error("Carousel needs at least 2 images");
+  if (imagePaths.length > 10) imagePaths = imagePaths.slice(0, 10);
+
+  const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
+  const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
+  if (!hasSession && !hasCookies) {
+    throw new Error("Instagram not set up — run: python3 scripts/extract-cookies.py");
+  }
+  const storageState = hasSession ? SESSION_FILE : COOKIES_FILE;
+
+  const browser = await webkit.launch({ headless: false });
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 1280, height: 900 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+    Object.defineProperty(window, "devicePixelRatio", { get: () => 2 });
+  });
+  const page = await context.newPage();
+
+  try {
+    await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(4000);
+    if (page.url().includes("/accounts/login")) throw new Error("IG session expired (carousel)");
+
+    await page.locator("button").filter({ hasText: /^not now$/i }).first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(800);
+
+    // Open Create menu
+    const createCandidates = [
+      page.locator("a[href='/create/style/']").first(),
+      page.locator("a[href*='create']").first(),
+      page.locator("[aria-label='Create'], [aria-label='New post']").first(),
+      page.locator("[aria-label*='create' i]").first(),
+    ];
+    for (const loc of createCandidates) {
+      if (await loc.isVisible({ timeout: 2500 }).catch(() => false)) {
+        await loc.click({ force: true });
+        break;
+      }
+    }
+    await page.waitForTimeout(2000);
+
+    // Click "Post" in the Create menu (multi-image upload makes it a carousel)
+    await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll("a, [role='menuitem'], [role='button'], span")) as HTMLElement[];
+      const m = items.find(el => /^post$/i.test((el.innerText || el.textContent || "").trim()));
+      if (m) (m.closest("a, [role='menuitem'], [role='button']") as HTMLElement || m).click();
+    });
+    await page.waitForTimeout(3000);
+
+    // Set ALL files at once
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles(imagePaths.map(p => path.resolve(p)));
+    log(ROLE, "info", `Carousel: uploaded ${imagePaths.length} images`);
+    await page.waitForTimeout(8000);
+
+    // Dismiss OK dialog if it appears
+    await page.locator("button").filter({ hasText: /^ok$/i }).first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(1000);
+
+    // Click Next twice (crop step + filter step)
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll("button, [role='button']")) as HTMLElement[];
+        const m = buttons.find(b => /^next$/i.test((b.innerText || b.textContent || "").trim()));
+        if (m) m.click();
+      });
+      await page.waitForTimeout(3000);
+    }
+
+    // Caption
+    const captionArea = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
+    await captionArea.waitFor({ state: "visible", timeout: 30000 });
+    await captionArea.click();
+    await page.keyboard.type(caption.slice(0, 2200), { delay: 8 });
+    await page.waitForTimeout(1500);
+
+    // Share
+    const shareClicked = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button, [role='button']")) as HTMLElement[];
+      const m = buttons.find(b => /^share$/i.test((b.innerText || b.textContent || "").trim()));
+      if (m) { m.click(); return true; }
+      return false;
+    });
+    if (!shareClicked) throw new Error("Carousel: Share button not found");
+    log(ROLE, "info", "Carousel: Share clicked, waiting for confirmation...");
+
+    // Poll for confirmation (~3 min)
+    for (let i = 0; i < 36; i++) {
+      await page.waitForTimeout(5000);
+      const ok = await page.evaluate(() => /your post has been shared/i.test(document.body.innerText));
+      if (ok) { log(ROLE, "info", "✅ Carousel posted"); return; }
+    }
+    log(ROLE, "warn", "Carousel confirmation never appeared (best-effort)");
+  } finally {
+    await browser.close();
+  }
+}
