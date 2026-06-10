@@ -26,7 +26,11 @@ export interface PostsForScript {
   theme: string;
 }
 
-const MAX_POINTS = 5;
+// Bumped 2026-06-10 from 5→7 for the 2:30 problem→solution arc (6-beat /
+// 10-panel structure). Allows up to 7 narrative points to fit in the longer
+// timeline; the 56s "many-short" pacing used to cap at 5 because it had to
+// fit in ~55s of runtime, which is no longer the constraint.
+const MAX_POINTS = 7;
 const MIN_POINTS = 2;
 const MAX_POINT_CHARS = 140;  // keep each point readable on a vertical phone screen
 const SECTION_HEADER = /^[A-Z][\w\s]{0,30}:\s*$/;  // "Healthcare:" / "Major categories:"

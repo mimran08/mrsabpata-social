@@ -10,13 +10,27 @@ export const CAST = `━━━ RECURRING CAST ━━━
 ONE character per post is OK. Two is good (dialogue). Three is rare. Pick whoever fits the topic. The audience follows them like a soap opera — episodes connect over time but each post stands alone.`;
 
 export const STORY_RULES = `━━━ STORY MODE — THIS IS NOT INFO POSTING ━━━
-Every post is a SHORT NARRATIVE EPISODE about Ahmed/Fatima/Bilal. NOT a fact dump.
+Every post is a 2:30 NARRATIVE EPISODE about Ahmed/Fatima/Bilal — a complete problem-to-solution arc, not an info dump or a cliffhanger.
 
-Structure:
-1. HOOK — a moment of tension, surprise, or a small disaster (NOT a bullet list)
-2. SCENE — show ONE concrete situation through one character's eyes; dialogue is great
-3. REVEAL — ONE specific Sweden fact discovered THROUGH the story, not preached
-4. TURN — a decision, realization, or open question that lands the ending
+Arc structure (THIS IS REQUIRED — the video has 10 scenes mapped to these 6 beats):
+
+1. HOOK (1 scene, ~8s)
+   A moment of tension, surprise, or a small disaster. NOT a bullet list. Starts mid-action.
+
+2. SETUP (2 scenes, ~25s)
+   What's the situation? Who's affected? What's at stake? Briefly establish the character's normal world before the problem hits.
+
+3. ESCALATION (2 scenes, ~35s)
+   The problem gets worse. The character realizes how serious this is. Maybe they panic, call someone, hit a wall, get bad news. This is the emotional low.
+
+4. TURNING POINT (2 scenes, ~25s)
+   Someone helps OR the character decides to act. Bilal explaining the rule, Fatima reading the Migrationsverket page, Ahmed deciding to call Skatteverket. The moment the story shifts from problem to solution.
+
+5. SOLUTION (2 scenes, ~35s)
+   THE ACTUAL SWEDEN FACT, EXPLAINED. Not a rushed one-liner — the character walks the audience through what to actually do. Specific steps, specific website URLs, specific deadlines, specific phrases. This is where the audience GETS the value.
+
+6. RESOLUTION + CTA (1 scene, ~20s)
+   What does the character do next? End on a small win or an open question. Cast invites the viewer to comment/follow.
 
 Tone:
 - Conversational Karachi Urdu mixed with English. "Yaar Bilal bhai", "actually", "kya scene hai"
@@ -51,8 +65,18 @@ The IG caption MUST end with TWO elements, in this order:
 This rule is the difference between getting 200 views and 600 views on IG reels.`;
 
 export const PANEL_SPEC = `━━━ COMIC PANELS (REQUIRED) ━━━
-Generate a "panels" array — 5 to 7 panels that visually narrate the episode.
-Each panel is one moment in the story; together they should read as the episode beat-by-beat.
+Generate a "panels" array with EXACTLY 10 panels matching the 6-beat arc:
+
+Panel 1   → HOOK              (problem appears / tension moment)
+Panel 2   → SETUP             (normal world before the problem)
+Panel 3   → SETUP             (stakes established)
+Panel 4   → ESCALATION        (problem gets worse)
+Panel 5   → ESCALATION        (emotional low / character's reaction)
+Panel 6   → TURNING POINT     (help arrives or decision is made)
+Panel 7   → TURNING POINT     (character starts to act)
+Panel 8   → SOLUTION          (the Sweden fact discovered/explained)
+Panel 9   → SOLUTION          (taking action / using the information)
+Panel 10  → RESOLUTION + CTA  (the small win, character invites viewer)
 
 Per panel:
 {
@@ -63,5 +87,5 @@ Per panel:
 Rules:
 - "character" must list only names actually appearing in that panel
 - "scene" is purely visual (no speech bubbles — the dialogue is in the post text, not the image)
-- Panel 1 sets the location/mood; final panel is a resolution or open-question moment
-- Avoid duplicating Sweden landmarks across consecutive panels — vary the locations (apartment, T-bana, vårdcentral, ICA, office, kitchen, balcony, park)`;
+- Vary locations across panels: apartment, T-bana, vårdcentral, ICA, office, kitchen, balcony, park, Migrationsverket waiting room, café — pick what fits each beat
+- Body language should track the arc: hunched/worried in escalation, upright/active in solution, smiling/relieved at resolution`;

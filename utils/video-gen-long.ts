@@ -17,7 +17,10 @@ import type { ScriptDict } from "./script-dict.js";
 
 const ROLE = "VideoGenLong";
 
-const MAX_DURATION = 58;   // hard ceiling under YouTube Shorts 60s
+// Hard ceiling for the long-form arc — 165s stays safely under the 180s
+// Shorts/Reels cap and gives YT/IG algorithms room to score full-completion
+// rate without timing out. TikTok allows up to 600s; we don't need that.
+const MAX_DURATION = 165;
 
 export type PacingMode = "many-short" | "headline-detail";
 
@@ -120,7 +123,11 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
   // YouTube uploader also calls thumbnails.set with this same image so the
   // search / channel-page thumbnail matches.
   const fadeOut = Math.max(0, totalDuration - 2);
-  const INTRO_SEC = 0.6;
+  // Intro static thumbnail at start. Bumped 0.6s → 1.2s on 2026-06-10 so the
+  // window covers TikTok's typical ~1s auto-pick frame AND IG Reels' cover
+  // dialog default selection (which often samples around 0.5-1.0s). Any frame
+  // platforms grab from t=0 to t=1.2s is now the branded preview image.
+  const INTRO_SEC = 1.2;
   const thumbPath = opts.imagePath; // 1080×1080 branded image with stat + subtext
   const finalDuration = totalDuration + INTRO_SEC;
   const audioFadeOutStart = fadeOut + INTRO_SEC;
@@ -226,9 +233,10 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
     return capToMax(sceneList);
   }
 
-  // pacingMode === "many-short" — up to 8 scenes (stat/action skipped if duplicate).
-  // Target ~55-58s total with 5 points; capToMax shrinks if it goes over.
-  const HOOK = 5, POINT = 7, STAT = 6, ACTION = 6, CTA = 5;
+  // pacingMode === "many-short" — up to 10 scenes (stat/action skipped if duplicate).
+  // Target ~150s total with 7 points; capToMax shrinks if it goes over (165s ceiling).
+  // 2026-06-10: bumped from 56s → 150s for the problem→solution arc.
+  const HOOK = 8, POINT = 17, STAT = 14, ACTION = 14, CTA = 18;
   const sceneList: Scene[] = [];
   let t = 0;
 
@@ -275,11 +283,11 @@ function buildScenes(script: ScriptDict, mode: PacingMode): Scene[] {
     t += ACTION;
   }
   sceneList.push({ kind: "cta", start: t, dur: CTA, text: script.cta, bgIndex: 0 });
-  // Stretch point scenes to fill toward ~56s total when content is thin. Per-point
-  // cap is content-aware: posts with only 2-3 points get a bigger stretch (each
-  // point can sit longer); posts with 4+ points stay punchy. Final video usually
-  // lands at 50-58s; capToMax shrinks anything that exceeds 58s.
-  return capToMax(stretchPoints(sceneList, 56));
+  // Stretch point scenes to fill toward ~150s total when content is thin.
+  // Per-point cap is content-aware: posts with only 2-3 points get a bigger
+  // stretch (each point can sit longer); posts with 5+ points stay punchy.
+  // Final video usually lands at 130-160s; capToMax shrinks anything > 165s.
+  return capToMax(stretchPoints(sceneList, 150));
 }
 
 function stretchPoints(scenes: Scene[], target: number): Scene[] {
@@ -288,8 +296,10 @@ function stretchPoints(scenes: Scene[], target: number): Scene[] {
   const pointIdxs = scenes.map((s, i) => (s.kind === "point" ? i : -1)).filter(i => i >= 0);
   if (pointIdxs.length === 0) return scenes;
   const needed = target - total;
-  // Content-aware cap: thin posts (2-3 points) accept more stretch; dense posts (4+) stay tight.
-  const maxAddPerPoint = pointIdxs.length <= 3 ? 5.0 : 2.5;
+  // Content-aware cap: thin posts (2-3 points) accept more stretch; dense posts (5+) stay tight.
+  // Bumped 2026-06-10 alongside the 56s → 150s target so the per-point dwell
+  // time can actually fill the longer arc without each scene feeling cramped.
+  const maxAddPerPoint = pointIdxs.length <= 3 ? 14.0 : pointIdxs.length <= 5 ? 8.0 : 4.0;
   const perPoint = Math.min(maxAddPerPoint, needed / pointIdxs.length);
   let t = 0;
   return scenes.map((s, i) => {
