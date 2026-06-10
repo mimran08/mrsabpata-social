@@ -25,7 +25,72 @@ async function dismissJoyride(page: import("playwright").Page): Promise<void> {
   }
 }
 
-export async function postViaTikTok(caption: string, imagePath?: string): Promise<void> {
+// Best-effort: find TT Studio's "Edit cover" button on the upload page, open
+// the cover dialog, switch to the upload tab, set our thumbnail PNG, confirm.
+// Wrapped so any failure logs and returns — never throws — because the video
+// is already uploaded by this point and we can safely fall back to auto-pick.
+async function setTikTokCustomCover(
+  page: import("playwright").Page,
+  thumbnailPath: string,
+): Promise<void> {
+  try {
+    // Scroll into view + find the cover edit affordance. Selectors vary —
+    // TT Studio sometimes uses "Edit cover", "Select cover", or a pencil icon
+    // next to the cover thumbnail.
+    const opened = await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll("button, [role='button'], div")) as HTMLElement[];
+      const m = els.find(el => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return el.offsetParent !== null && (t === "edit cover" || t === "select cover" || t === "change cover" || /^cover$/i.test(t));
+      });
+      if (m) { m.click(); return true; }
+      return false;
+    });
+    if (!opened) {
+      log(ROLE, "info", "Cover-edit button not found — using auto-pick (1.2s intro covers it)");
+      return;
+    }
+    await page.waitForTimeout(2000);
+
+    // Switch to "Upload" tab inside the cover dialog (vs "Select from video")
+    await page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll("button, [role='tab']")) as HTMLElement[];
+      const m = tabs.find(el => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return el.offsetParent !== null && (t === "upload" || t === "upload cover" || t === "upload image");
+      });
+      if (m) m.click();
+    });
+    await page.waitForTimeout(1000);
+
+    // Trigger file chooser for the upload input
+    const fileInputCandidates = page.locator("input[type='file'][accept*='image']").first();
+    if (await fileInputCandidates.count() > 0) {
+      await fileInputCandidates.setInputFiles(path.resolve(thumbnailPath));
+      log(ROLE, "info", `Custom cover uploaded: ${path.basename(thumbnailPath)}`);
+      await page.waitForTimeout(3000);
+    } else {
+      log(ROLE, "info", "No image file input visible in cover dialog — skipping");
+      return;
+    }
+
+    // Confirm / Save / Done
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll("button, [role='button']")) as HTMLElement[];
+      const m = els.find(el => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return el.offsetParent !== null && (t === "confirm" || t === "save" || t === "done" || t === "ok");
+      });
+      if (m) m.click();
+    });
+    await page.waitForTimeout(2000);
+    log(ROLE, "info", "Cover dialog confirmed");
+  } catch (e) {
+    log(ROLE, "warn", `setTikTokCustomCover failed (non-fatal): ${String(e).slice(0, 120)}`);
+  }
+}
+
+export async function postViaTikTok(caption: string, imagePath?: string, thumbnailPath?: string): Promise<void> {
   const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
   const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
 
@@ -87,6 +152,14 @@ export async function postViaTikTok(caption: string, imagePath?: string): Promis
     // Escape doesn't close react-joyride; you must click the button inside its portal
     // (label varies: Skip/Next/Got it/×). Loop until the portal is gone.
     await dismissJoyride(page);
+
+    // Upload custom cover (best-effort). Reaches into TT Studio's cover dialog
+    // and uploads the branded thumbnail PNG. Falls back silently to auto-pick
+    // (which is also our branded image because of the 1.2s video intro).
+    if (thumbnailPath) {
+      await setTikTokCustomCover(page, thumbnailPath);
+      await dismissJoyride(page); // tour can reappear after the dialog
+    }
 
     // Fill caption — TikTok Studio uses a Draft.js contenteditable.
     // TikTok auto-fills the field with the uploaded filename, so we must

@@ -7,8 +7,56 @@ const ROLE = "Instagram-Browser";
 const SESSION_FILE = path.join("company", "instagram-session.json");
 const COOKIES_FILE = path.join("company", "instagram-cookies.json");
 
+// Best-effort: in the IG Reel upload wizard, locate the cover selection step
+// (between trim and caption) and upload our branded PNG. Failure is logged
+// but non-fatal — IG falls back to auto-pick (which is also our branded
+// image because the video has a 1.2s static intro).
+async function setInstagramCustomCover(
+  page: import("playwright").Page,
+  thumbnailPath: string,
+): Promise<void> {
+  try {
+    // IG's cover step shows a strip of video frames + sometimes an "Add cover
+    // from camera roll" button. Try to find any file input in the visible
+    // wizard area that accepts images, OR an "Add from device" / "Upload from
+    // computer" button that triggers a file chooser.
+    const triggered = await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll("button, [role='button'], div, span")) as HTMLElement[];
+      const m = els.find(el => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return el.offsetParent !== null && (
+          t === "add cover from camera roll" ||
+          t === "upload from computer" ||
+          t === "select cover" ||
+          /add cover/i.test(t) ||
+          /upload.*cover/i.test(t)
+        );
+      });
+      if (m) { m.click(); return true; }
+      return false;
+    });
+    if (!triggered) {
+      log(ROLE, "info", "IG cover-upload affordance not found — using auto-pick (1.2s intro covers it)");
+      return;
+    }
+    await page.waitForTimeout(2000);
+
+    // Set the file on whatever input opened
+    const fileInputs = page.locator("input[type='file'][accept*='image']");
+    if (await fileInputs.count() > 0) {
+      await fileInputs.first().setInputFiles(path.resolve(thumbnailPath));
+      log(ROLE, "info", `Custom cover uploaded to IG: ${path.basename(thumbnailPath)}`);
+      await page.waitForTimeout(4000);
+    } else {
+      log(ROLE, "info", "No image file input visible after triggering cover upload — skipping");
+    }
+  } catch (e) {
+    log(ROLE, "warn", `setInstagramCustomCover failed (non-fatal): ${String(e).slice(0, 120)}`);
+  }
+}
+
 // Posts a video as an Instagram Reel (falls back to image if not mp4/mov)
-export async function postViaInstagram(caption: string, mediaPath: string): Promise<void> {
+export async function postViaInstagram(caption: string, mediaPath: string, thumbnailPath?: string): Promise<void> {
   const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
   const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
 
@@ -168,6 +216,14 @@ export async function postViaInstagram(caption: string, mediaPath: string): Prom
             .slice(0, 10)
         ).catch(() => [] as string[]);
         log(ROLE, "info", `Wizard step ${step + 1} — visible buttons: ${visibleBtns.join(", ")}`);
+
+        // If this step exposes a cover-upload affordance, set our branded thumbnail
+        // before clicking Next. setInstagramCustomCover is silent if not at the
+        // cover step yet, so this is safe to try at every step.
+        if (thumbnailPath) {
+          await setInstagramCustomCover(page, thumbnailPath);
+        }
+
         const nxt = page.locator("button, div[role='button']").filter({ hasText: /^next$/i }).first();
         if (await nxt.isVisible({ timeout: 4000 }).catch(() => false)) {
           await nxt.click({ force: true });

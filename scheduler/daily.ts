@@ -785,7 +785,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   // ── TikTok ───────────────────────────────────────────────────────────────────
   if (!done.tiktok) {
     try {
-      await postViaTikTok(posts.tiktok, videoPath ?? imagePath);
+      await postViaTikTok(posts.tiktok, videoPath ?? imagePath, imagePath);
       log(ROLE, "info", "✅ TikTok: posted via browser");
       done.tiktok = true;
       await saveDone(done);
@@ -802,7 +802,7 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
     const instagramMedia = videoPath ?? imagePath;
     if (instagramMedia) {
       try {
-        await postViaInstagram(posts.instagram, instagramMedia);
+        await postViaInstagram(posts.instagram, instagramMedia, imagePath);
         log(ROLE, "info", "✅ Instagram: posted via browser");
         done.instagram = true;
         await saveDone(done);
