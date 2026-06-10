@@ -57,3 +57,6 @@ company/post-videos/
 logs/
 dist/
 music/_quarantine/
+
+# Music track usage log (per-cron append, useful for tracing Content ID claims)
+music/_usage-log.jsonl
