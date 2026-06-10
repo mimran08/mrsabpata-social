@@ -12,10 +12,19 @@ const EPOCH = new Date("2026-01-01").getTime();
 
 // Collect every .mp3 from the active mood subdirs, sorted alphabetically for
 // a deterministic, stable ordering that doesn't change between runs. Skips
-// _quarantine/ (which holds tracks flagged by YouTube Content ID).
+// _quarantine/ (which holds tracks flagged by — or at risk for — YouTube
+// Content ID claims).
+//
+// 2026-06-10: primary source is now `youtube-audio-library/`, downloaded
+// directly from YT Studio. YT Audio Library tracks are guaranteed not to
+// trigger Content ID claims on any Short, including >60s. The legacy
+// mood-based subdirs (ambient/cultural/inspirational, all Pixabay-sourced)
+// have been fully quarantined after the "Silk Road" claim on 2026-06-10
+// evening. They remain readable as a fallback if youtube-audio-library/
+// is empty, but in practice that branch shouldn't fire.
 async function getAllTracks(): Promise<string[]> {
   const tracks: string[] = [];
-  for (const subdir of ["ambient", "cultural", "inspirational"]) {
+  for (const subdir of ["youtube-audio-library", "ambient", "cultural", "inspirational"]) {
     const dir = path.join(MUSIC_DIR, subdir);
     try {
       const files = (await fs.readdir(dir))
