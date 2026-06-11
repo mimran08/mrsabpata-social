@@ -333,6 +333,137 @@ export async function generatePostImage(opts: PostImageOptions): Promise<PostIma
   }
 }
 
+// ─── Topic-specific vertical thumbnail (1080×1920) ───────────────────────────
+// Uses a comic panel (typically the first / HOOK panel) as the background and
+// overlays the episode's hook quote + brand bar. Vertical 9:16 fits Shorts/
+// Reels/TT natively without padding. Replaces the old square 1080×1080 image
+// when we want a thumbnail that actually shows what the post is about.
+
+const TW = 1080;
+const TH = 1920;
+
+function buildVerticalThumbnailSvg(opts: { stat: string; subtext?: string; pillar: string }): string {
+  // Dark gradient overlay at top + bottom so text stays readable over any panel
+  const statLines = wrapText(opts.stat.replace(/^['"]|['"]$/g, ""), 18);
+  const subtextLines = opts.subtext ? wrapText(opts.subtext, 30) : [];
+  const startSize = statLines.length <= 2 ? 130 : statLines.length <= 3 ? 105 : 85;
+  const statFontSize = fitFontSize(statLines, 940, startSize, 60);
+  const statLineHeight = statFontSize * 1.15;
+  const subtextFontSize = 42;
+  const subtextLineHeight = subtextFontSize * 1.3;
+
+  // Position text in the lower-middle third (700–1300) so it doesn't cover the
+  // character's face which is usually upper-middle in the panel.
+  const statBlockHeight = statLines.length * statLineHeight;
+  const subtextBlockHeight = subtextLines.length * subtextLineHeight + (subtextLines.length ? 30 : 0);
+  const totalContentHeight = statBlockHeight + subtextBlockHeight;
+  const TEXT_TOP = 880;
+  const TEXT_BTM = 1500;
+  const contentStartY = TEXT_TOP + ((TEXT_BTM - TEXT_TOP) - totalContentHeight) / 2;
+
+  const statSvg = statLines.map((line, i) => {
+    const y = contentStartY + i * statLineHeight + statFontSize;
+    return `<text x="${TW/2}" y="${y}" font-family="Arial Black, Arial, sans-serif" font-size="${statFontSize}" font-weight="900" fill="${ACCENT}" text-anchor="middle" letter-spacing="1" stroke="${BG_TOP}" stroke-width="3" paint-order="stroke fill">${escapeXml(line)}</text>`;
+  }).join("\n  ");
+
+  const subtextStartY = contentStartY + statBlockHeight + 30;
+  const subtextSvg = subtextLines.map((line, i) => {
+    const y = subtextStartY + i * subtextLineHeight + subtextFontSize;
+    return `<text x="${TW/2}" y="${y}" font-family="Arial, sans-serif" font-size="${subtextFontSize}" font-weight="600" fill="${WHITE}" text-anchor="middle" stroke="${BG_TOP}" stroke-width="2" paint-order="stroke fill">${escapeXml(line)}</text>`;
+  }).join("\n  ");
+
+  const pillarLabel = escapeXml(opts.pillar.toUpperCase());
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${TW}" height="${TH}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="topShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${BG_TOP}" stop-opacity="0.88"/>
+      <stop offset="100%" stop-color="${BG_TOP}" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="midBoost" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${BG_TOP}" stop-opacity="0"/>
+      <stop offset="50%" stop-color="${BG_TOP}" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="${BG_TOP}" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="accentBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${ACCENT}" stop-opacity="0"/>
+      <stop offset="40%" stop-color="${ACCENT}"/>
+      <stop offset="60%" stop-color="${ACCENT}"/>
+      <stop offset="100%" stop-color="${ACCENT}" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Top dark shade for brand bar readability -->
+  <rect x="0" y="0" width="${TW}" height="280" fill="url(#topShade)"/>
+
+  <!-- Bottom dark shade for title text readability -->
+  <rect x="0" y="820" width="${TW}" height="${TH-820}" fill="url(#midBoost)"/>
+
+  <!-- Corner accent brackets -->
+  <rect x="40" y="40" width="100" height="8" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="40" y="40" width="8" height="100" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="${TW-140}" y="40" width="100" height="8" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="${TW-48}" y="40" width="8" height="100" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="40" y="${TH-48}" width="100" height="8" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="40" y="${TH-140}" width="8" height="100" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="${TW-140}" y="${TH-48}" width="100" height="8" fill="${ACCENT}" opacity="0.92"/>
+  <rect x="${TW-48}" y="${TH-140}" width="8" height="100" fill="${ACCENT}" opacity="0.92"/>
+
+  <!-- Brand bar -->
+  <text x="${TW/2}" y="140" font-family="Arial Black, Arial, sans-serif" font-size="56" font-weight="900" fill="${WHITE}" text-anchor="middle" letter-spacing="2">MrSabPata</text>
+  <text x="${TW/2}" y="200" font-family="Arial, sans-serif" font-size="30" fill="${ACCENT}" text-anchor="middle" opacity="0.95" letter-spacing="6" font-weight="700">${pillarLabel}</text>
+  <rect x="240" y="230" width="${TW-480}" height="3" fill="url(#accentBar)" opacity="0.85"/>
+
+  ${statSvg}
+  ${subtextSvg}
+
+  <!-- Bottom handle -->
+  <text x="${TW/2}" y="${TH-70}" font-family="Arial, sans-serif" font-size="36" fill="${WHITE}" text-anchor="middle" opacity="0.75" font-weight="600">@MrSabPata</text>
+</svg>`;
+}
+
+export interface TopicThumbnailOptions {
+  /** Path to the panel PNG that becomes the background (usually panel-01 = HOOK). */
+  panelPath: string;
+  /** Big punchy line (the stat / hook quote). 3-7 words ideal. */
+  stat: string;
+  /** Smaller supporting line, optional. */
+  subtext?: string;
+  /** Pillar name shown in the brand bar (e.g. "Sweden Visa & Immigration"). */
+  pillar: string;
+  /** Output filename stem (extension added). */
+  filename: string;
+  /** Output dir; defaults to company/post-images/. */
+  outDir?: string;
+}
+
+/**
+ * Generate a vertical 1080×1920 thumbnail using a comic panel as the background.
+ * Output is suitable as: YT custom thumbnail, TT cover, IG Reel cover, and as
+ * the prepended 1.2s video intro frame (replaces the old square image).
+ */
+export async function generateTopicThumbnail(opts: TopicThumbnailOptions): Promise<string> {
+  const outDir = opts.outDir ?? path.join("company", "post-images");
+  await fs.mkdir(outDir, { recursive: true });
+  const outPath = path.join(outDir, `${opts.filename}-thumb.png`);
+
+  const panel = await fs.readFile(opts.panelPath);
+  const overlaySvg = buildVerticalThumbnailSvg({
+    stat: opts.stat,
+    subtext: opts.subtext,
+    pillar: opts.pillar,
+  });
+
+  await sharp(panel)
+    .resize(TW, TH, { fit: "cover", position: "centre" })
+    .composite([{ input: Buffer.from(overlaySvg), top: 0, left: 0 }])
+    .png({ quality: 95 })
+    .toFile(outPath);
+
+  return outPath;
+}
+
 // Converts a PNG image to a 5-second looping MP4 video (for TikTok)
 export async function imageToVideo(imagePath: string): Promise<string> {
   const videoPath = imagePath.replace(/\.png$/i, ".mp4");

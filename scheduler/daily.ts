@@ -4,7 +4,7 @@ import { postViaTikTok } from "../platforms/tiktok-browser.js";
 import { uploadYouTubeShort as uploadYouTubeShortAPI } from "../platforms/youtube-api.js";
 import { uploadYouTubeShort as uploadYouTubeShortBrowser } from "../platforms/youtube-browser.js";
 import { postViaInstagram, postViaInstagramStory } from "../platforms/instagram-browser.js";
-import { generatePostImage } from "../utils/image-gen.js";
+import { generatePostImage, generateTopicThumbnail } from "../utils/image-gen.js";
 import { generateAnimatedVideo } from "../utils/video-gen-animated.js";
 import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-long.js";
 import { buildScriptDict } from "../utils/script-dict.js";
@@ -714,6 +714,27 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
             log(ROLE, "info", `Comic panels unavailable (${panelPaths?.length ?? 0}) — falling back to Pixabay background pool`);
             const bgPool = await generateBackgroundPool(pillarName, 3, `${dateString()}-${session}`);
             bgImagePaths = bgPool.length ? bgPool : undefined;
+          }
+
+          // Generate a topic-specific vertical (1080×1920) thumbnail using the
+          // first comic panel (the HOOK beat) as the background + the episode's
+          // stat quote + brand bar. Replaces the generic square image as the
+          // thumbnail across all platforms. If panels failed, imagePath stays
+          // the legacy square fallback so we still have *something* to show.
+          if (panelPaths && panelPaths.length > 0) {
+            try {
+              const topicThumb = await generateTopicThumbnail({
+                panelPath: panelPaths[0],
+                stat: posts.stat || posts.theme,
+                subtext: posts.subtext || "",
+                pillar: pillarName,
+                filename: `${dateString()}-${session}`,
+              });
+              log(ROLE, "info", `Topic thumbnail: ${topicThumb}`);
+              imagePath = topicThumb;
+            } catch (err) {
+              log(ROLE, "warn", `Topic thumbnail failed: ${String(err).slice(0, 100)} — keeping legacy square image`);
+            }
           }
 
           videoPath = await generateLongVideo({
