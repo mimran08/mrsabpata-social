@@ -205,7 +205,11 @@ export async function postViaInstagram(caption: string, mediaPath: string, thumb
       }
 
       // Step through wizard until caption field appears (cover/trim → filters → caption)
-      const captionLocator = page.locator('textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
+      // 2026-06-12: IG removed the aria-label="Write a caption" hint on their
+      // contenteditable — the field now is just `div[contenteditable="true"]`
+      // inside the right-panel dialog. Broaden the detector to match any
+      // contenteditable in the dialog (the first such match IS the caption).
+      const captionLocator = page.locator('div[role="dialog"] div[contenteditable="true"], textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"]').first();
       for (let step = 0; step < 10; step++) {
         if (await captionLocator.isVisible().catch(() => false)) break;
         const visibleBtns = await page.evaluate(() =>
@@ -261,7 +265,7 @@ export async function postViaInstagram(caption: string, mediaPath: string, thumb
 
     // Caption (shared by both flows)
     const captionArea = page.locator(
-      'textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"], textarea[placeholder*="caption" i], textarea[placeholder*="write" i]'
+      'div[role="dialog"] div[contenteditable="true"], textarea[aria-label*="caption" i], div[role="textbox"][contenteditable="true"], textarea[placeholder*="caption" i], textarea[placeholder*="write" i]'
     ).first();
     await captionArea.waitFor({ state: "visible", timeout: 45000 });
     log(ROLE, "info", "Caption field visible — typing caption");
