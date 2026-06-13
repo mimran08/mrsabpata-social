@@ -28,8 +28,27 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Install Playwright browsers (Chromium + WebKit, no --with-deps on Mac)
-        run: npx playwright install webkit chromium
+      - name: Install Playwright browsers (only if missing)
+        timeout-minutes: 5
+        run: |
+          # 2026-06-13: this step hung for 30 min and ate the whole job. The
+          # self-hosted Mac runner already has webkit + chromium installed
+          # from prior runs (they live in ~/Library/Caches/ms-playwright/).
+          # Check first; only download if a target browser dir is missing.
+          # Hard 5-min timeout so even a partial download can't burn the run.
+          set -e
+          CACHE_DIR="$HOME/Library/Caches/ms-playwright"
+          NEED_INSTALL=0
+          if [ ! -d "$CACHE_DIR" ]; then NEED_INSTALL=1; fi
+          if [ ! "$(ls -d "$CACHE_DIR"/chromium-* 2>/dev/null | head -1)" ]; then NEED_INSTALL=1; fi
+          if [ ! "$(ls -d "$CACHE_DIR"/webkit-* 2>/dev/null | head -1)" ]; then NEED_INSTALL=1; fi
+          if [ "$NEED_INSTALL" -eq 1 ]; then
+            echo "Browser binaries missing — installing"
+            npx playwright install webkit chromium
+          else
+            echo "Browser binaries already present, skipping install"
+            ls "$CACHE_DIR" | head
+          fi
 
       # (Removed 'Restore platform sessions' step that decoded base64-gzipped
       # cookie secrets — they were the GH-cloud-runner approach and went stale
