@@ -137,14 +137,30 @@ export async function postViaTikTok(caption: string, imagePath?: string, thumbna
     log(ROLE, "info", "TikTok Studio loaded");
 
     if (uploadPath) {
-      // Use Playwright locator to trigger file chooser — page.evaluate click doesn't count as user gesture
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent("filechooser", { timeout: 15000 }),
-        page.locator("button").filter({ hasText: /^Select videos$/i }).first().click(),
-      ]);
-      await fileChooser.setFiles(path.resolve(uploadPath));
-      log(ROLE, "info", "Video uploaded to TikTok — waiting for processing");
-      await page.waitForTimeout(15000); // TikTok takes longer to process video
+      // 2026-06-14: TT changed the upload trigger so clicking the visible
+      // "Select videos" button no longer fires the filechooser event (15s
+      // timeout). Bypass by setting files directly on the hidden video
+      // input that TT pre-renders on the upload page.
+      const fileInput = page.locator("input[type='file'][accept*='video']").first();
+      await fileInput.setInputFiles(path.resolve(uploadPath));
+      log(ROLE, "info", "Video upload kicked off");
+      await page.waitForTimeout(5000);
+
+      // Wait for the top-right Cancel button (only present during upload) to
+      // disappear. Posting while still uploading silently fails — TT shows
+      // an enabled Post button but rejects the submission server-side, and
+      // we see the "didn't publish — retrying" pattern indefinitely.
+      // Cap at 8 minutes for very large videos.
+      for (let i = 0; i < 240; i++) {
+        const stillUploading = await page.evaluate(() =>
+          !!Array.from(document.querySelectorAll("button, [role='button']"))
+            .find(b => /^cancel$/i.test((b.textContent || "").trim()) && (b as HTMLElement).offsetParent !== null)
+        );
+        if (!stillUploading) { log(ROLE, "info", `Video upload complete after ${i * 2}s`); break; }
+        if (i % 8 === 0) log(ROLE, "info", `Still uploading (${i * 2}s)...`);
+        await page.waitForTimeout(2000);
+      }
+      await page.waitForTimeout(4000);
     }
 
     // Dismiss the TikTok onboarding tour (react-joyride). Its overlay intercepts all
