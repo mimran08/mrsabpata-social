@@ -3,7 +3,7 @@ import { postViaBrowser } from "../platforms/x-browser.js";
 import { postViaTikTok } from "../platforms/tiktok-browser.js";
 import { uploadYouTubeShort as uploadYouTubeShortAPI } from "../platforms/youtube-api.js";
 import { uploadYouTubeShort as uploadYouTubeShortBrowser } from "../platforms/youtube-browser.js";
-import { postViaInstagram, postViaInstagramStory } from "../platforms/instagram-browser.js";
+import { postViaInstagram, postViaInstagramStory, commentOnLatestReel } from "../platforms/instagram-browser.js";
 import { generatePostImage, generateTopicThumbnail } from "../utils/image-gen.js";
 import { generateAnimatedVideo } from "../utils/video-gen-animated.js";
 import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-long.js";
@@ -847,6 +847,24 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
       await postViaInstagramStory(videoPath);
     } catch (err) {
       log(ROLE, "warn", `Instagram Story failed (non-fatal): ${String(err).slice(0, 120)}`);
+    }
+  }
+
+  // ── Instagram first comment (best-effort, after the Reel) ────────────────────
+  // Seed the first comment with a question hook. IG's algorithm weights
+  // comment count heavily and the first comment usually doubles the
+  // engagement signal for a fresh post. Same character voice as the
+  // episode for consistency. Failure here is also non-fatal.
+  if (done.instagram) {
+    const characterPool = ["Ahmed", "Fatima", "Bilal"];
+    const firstChar = (posts.panels?.[0]?.character.split(/[,+&]/)[0]?.trim() ?? "ahmed").toLowerCase();
+    const speaker = characterPool.find(c => c.toLowerCase() === firstChar) ?? "Ahmed";
+    const firstComment = `🎬 ${speaker}: Aap hote toh kya karte? Comment mein batao 👇 (full story padhne ke liye caption ⤴)`;
+    try {
+      log(ROLE, "info", "Posting Instagram first comment (best-effort)...");
+      await commentOnLatestReel(firstComment);
+    } catch (err) {
+      log(ROLE, "warn", `Instagram first comment failed (non-fatal): ${String(err).slice(0, 120)}`);
     }
   }
 

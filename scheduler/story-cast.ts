@@ -49,9 +49,19 @@ Only mention real Swedish institutions/processes:
 ❌ Do NOT invent Swedish IDs/programs/agencies. If a real one doesn't fit, write around it.`;
 
 export const IG_ENGAGEMENT_RULES = `━━━ INSTAGRAM ENGAGEMENT (CRITICAL) ━━━
-The IG caption MUST end with TWO elements, in this order:
+The IG caption MUST follow this exact structure:
 
-1. **Direct question to viewers** — phrased as if Ahmed/Fatima/Bilal is asking THEM personally. Examples:
+0. **HOOK first line** — the FIRST line of the IG caption is the make-or-break. IG shows only the first ~80 characters before "...more"; viewers decide "show or hide" based on that. Open with a SHOCK or a DIRECT QUESTION, not narration. Examples:
+
+   ✅ "Sweden mein 4 mahine, aur ek galti = visa cancel. Aap jaante ho?"
+   ✅ "Personnummer nahi? Healthcare bhul jao. Yaha tak ke pregnancy bhi."
+   ✅ "Ahmed ne kal raat ek mistake ki — har Pakistani karta hai. Aap?"
+   ❌ "Ahmed was sitting on his sofa when..." (story narration — buried)
+   ❌ "It was a normal evening for Ahmed..." (boring opener)
+
+   Then BLANK LINE, then start the actual episode in paragraph 2.
+
+1. **Direct question to viewers** at end — phrased as if Ahmed/Fatima/Bilal is asking THEM personally. Examples:
    "Tum hote toh kya karte? Comment mein batao 👇"
    "Aap ne aisa kuch face kiya hai? Apni story share karo 👇"
    "Kya Ahmed ko Bilal ki advice lena chahiye? Vote karo 👇"
@@ -62,7 +72,7 @@ The IG caption MUST end with TWO elements, in this order:
 
    Pillar-specific hashtags go BEFORE these (3-5 of them). Total = 7-9 hashtags.
 
-This rule is the difference between getting 200 views and 600 views on IG reels.`;
+The first-line hook is what gets the algorithm to show the post. The end question + hashtags are what get engagement once it's seen. Both matter.`;
 
 export const PANEL_SPEC = `━━━ COMIC PANELS (REQUIRED) ━━━
 Generate a "panels" array with EXACTLY 10 panels matching the 6-beat arc:

@@ -394,6 +394,81 @@ async function clickLocatorButton(page: import("playwright").Page, pattern: RegE
   });
 }
 
+// ── First comment posting ──────────────────────────────────────────────────
+//
+// Posts the first comment on the most recent reel under @mrsabpata. IG's
+// algorithm weights comment count heavily; seeding a question as the
+// first comment usually pulls 2-3x more replies than relying on viewers
+// to open the conversation.
+//
+// Called by the scheduler AFTER postViaInstagram succeeds. Failure is
+// non-fatal — the Reel itself is already up.
+export async function commentOnLatestReel(commentText: string): Promise<void> {
+  const hasSession = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
+  const hasCookies = await fs.access(COOKIES_FILE).then(() => true).catch(() => false);
+  if (!hasSession && !hasCookies) throw new Error("Instagram not set up");
+  const storageState = hasSession ? SESSION_FILE : COOKIES_FILE;
+
+  const browser = await webkit.launch({ headless: false });
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 1280, height: 900 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+  });
+  const page = await context.newPage();
+
+  try {
+    log(ROLE, "info", "Opening profile to find latest reel...");
+    await page.goto("https://www.instagram.com/mrsabpata/reels/", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(5000);
+
+    const reelUrl = await page.evaluate(() => {
+      const a = document.querySelector('a[href*="/reel/"]') as HTMLAnchorElement | null;
+      return a ? a.href.split("?")[0] : null;
+    });
+    if (!reelUrl) throw new Error("No reels found on profile");
+    log(ROLE, "info", `Latest reel: ${reelUrl}`);
+
+    await page.goto(reelUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(5000);
+
+    // Find the comment composer. IG's reel page renders a comment area at
+    // bottom of the right-side panel (or below the video on mobile).
+    const composer = page.locator('textarea[aria-label*="comment" i], textarea[placeholder*="comment" i], form textarea').first();
+    if (!await composer.isVisible({ timeout: 8000 }).catch(() => false)) {
+      // Sometimes you need to click the comment icon first to open the composer
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('svg[aria-label*="omment" i], button[aria-label*="omment" i]')) as HTMLElement[];
+        if (buttons[0]) buttons[0].closest('button, [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await page.waitForTimeout(2000);
+    }
+    await composer.waitFor({ state: "visible", timeout: 10000 });
+    await composer.click();
+    await page.keyboard.type(commentText.slice(0, 2200), { delay: 8 });
+    await page.waitForTimeout(800);
+
+    // Click the Post button (next to the composer)
+    const posted = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button, div[role='button']")) as HTMLElement[];
+      const m = buttons.find(b => /^post$/i.test((b.textContent || "").trim()) && b.offsetParent !== null);
+      if (m) { m.click(); return true; }
+      return false;
+    });
+    if (!posted) {
+      // Fallback — Enter key submits in some IG variants
+      await page.keyboard.press("Enter");
+    }
+    await page.waitForTimeout(4000);
+    log(ROLE, "info", "First comment submitted (best-effort — IG often confirms silently)");
+  } finally {
+    await browser.close();
+  }
+}
+
 // ── Story posting ────────────────────────────────────────────────────────────
 //
 // Posts a video as an Instagram Story (24h ephemeral). Distinct from Reel — no

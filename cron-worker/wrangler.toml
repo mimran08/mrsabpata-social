@@ -2,13 +2,19 @@ name = "mrsabpata-cron"
 main = "src/index.ts"
 compatibility_date = "2026-05-19"
 
-# 2026-06-10: dropped from twice-a-day to once-a-day at 16:00 Stockholm.
-# 14:00 UTC = 16:00 Stockholm in summer (CEST / UTC+2).
-# DST NOTE: when Stockholm switches back to CET in late October, change this
-# to "0 15 * * *" (CET / UTC+1) to keep the post at 16:00 local. Cron is
-# always evaluated in UTC; Cloudflare doesn't auto-DST.
+# 2026-06-23: shifted 16:00 → 19:00 Stockholm to hit peak Pakistan phone-in-bed
+# time (22:00 PKT). Same audience, ~2-3× more likely to scroll.
+# 17:00 UTC = 19:00 Stockholm in summer (CEST / UTC+2).
+# 2026-06-23 also added Sunday weekly carousel at 11:00 Stockholm (09:00 UTC).
+# DST NOTE: when Stockholm switches back to CET in late October, change to
+# "0 18 * * *" for the daily and "0 10 * * 0" for the weekly to keep the
+# 19:00 local + Sunday 11:00 local windows. Cloudflare cron is always UTC.
 [triggers]
-crons = ["0 14 * * *"]
+crons = [
+  "0 17 * * *",     # daily evening — 19:00 Stockholm CEST
+  "0 9 * * SUN",    # Sunday carousel — 11:00 Stockholm CEST
+                    # CF requires named-day notation for DoW (0/6 rejected)
+]
 
 [vars]
 REPO_OWNER = "mimran08"

@@ -2,11 +2,12 @@
 // GitHub's own cron drifts 1-4h on shared runners; Cloudflare's cron fires on the minute.
 //
 // Crons defined in wrangler.toml:
-//   - 0 14 * * *  → evening-post-mac.yml (16:00 Stockholm CEST)
+//   - 0 17 * * *  → evening-post-mac.yml      (19:00 Stockholm CEST, daily)
+//   - 0 9 * * 0   → weekly-carousel-mac.yml   (11:00 Stockholm CEST, Sundays)
 //
-// 2026-06-10: dropped morning cron (was twice/day) — now posting once a day.
-// The morning-post-mac.yml workflow still exists for manual workflow_dispatch
-// runs (e.g. recovery), but is no longer auto-triggered.
+// 2026-06-23: shifted daily from 16:00 → 19:00 Stockholm (peak Pakistan time)
+// + added Sunday weekly carousel (story panels reposted as IG carousel for
+// 1.4x reach lift over single Reels).
 
 interface Env {
   GH_TOKEN: string;       // GitHub PAT or OAuth token with 'workflow' scope (set as secret)
@@ -15,11 +16,23 @@ interface Env {
 }
 
 export default {
-  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    // Single cron entry "0 14 * * *" UTC = 16:00 Stockholm CEST.
-    // -mac variant runs on the self-hosted Mac runner where Chrome works;
-    // CI WebKit + Xvfb hangs silently for 26+ min.
-    const workflow = "evening-post-mac.yml";
+  async scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    // Pick workflow by firing time's UTC hour:
+    //   17:00 UTC = 19:00 Stockholm → daily evening post
+    //   09:00 UTC + Sunday = 11:00 Stockholm → weekly carousel
+    const fireTime = new Date(event.scheduledTime);
+    const hour = fireTime.getUTCHours();
+    const dow = fireTime.getUTCDay();   // 0 = Sunday
+
+    let workflow: string;
+    if (hour === 9 && dow === 0) {
+      workflow = "weekly-carousel-mac.yml";
+    } else if (hour === 17) {
+      workflow = "evening-post-mac.yml";
+    } else {
+      console.error(`Cron fired at unexpected time: ${hour}:00 UTC, dow=${dow}`);
+      return;
+    }
 
     const url = `https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/actions/workflows/${workflow}/dispatches`;
     const res = await fetch(url, {
@@ -45,8 +58,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const w = url.searchParams.get("w");
-    if (!w || !/^(morning|evening)-post(-mac)?\.yml$/.test(w)) {
-      return new Response("usage: ?w=morning-post-mac.yml or ?w=evening-post-mac.yml (or the cloud variants)", { status: 400 });
+    if (!w || !/^(morning|evening)-post(-mac)?\.yml$|^weekly-carousel-mac\.yml$/.test(w)) {
+      return new Response("usage: ?w=morning-post-mac.yml | evening-post-mac.yml | weekly-carousel-mac.yml", { status: 400 });
     }
     const apiUrl = `https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/actions/workflows/${w}/dispatches`;
     const res = await fetch(apiUrl, {

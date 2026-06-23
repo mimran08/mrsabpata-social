@@ -123,11 +123,14 @@ export async function generateLongVideo(opts: LongVideoOptions): Promise<string>
   // YouTube uploader also calls thumbnails.set with this same image so the
   // search / channel-page thumbnail matches.
   const fadeOut = Math.max(0, totalDuration - 2);
-  // Intro static thumbnail at start. Bumped 0.6s → 1.2s on 2026-06-10 so the
-  // window covers TikTok's typical ~1s auto-pick frame AND IG Reels' cover
-  // dialog default selection (which often samples around 0.5-1.0s). Any frame
-  // platforms grab from t=0 to t=1.2s is now the branded preview image.
-  const INTRO_SEC = 1.2;
+  // Intro static thumbnail held at start. Bumped 1.2s → 4.5s on 2026-06-23
+  // because YT Shorts and IG Reels were auto-picking frames from MID-VIDEO
+  // (the point scenes with "2"/"3" badges), not the first frame — the 1.2s
+  // window was too short for their "representative frame" algorithm. With a
+  // 4.5s hold, any auto-pick from t=0 to t=4.5s lands on the branded thumb.
+  // Cost: viewers wait 3 extra seconds before the story starts. Reach gain
+  // (branded preview on every platform's feed) outweighs the bounce risk.
+  const INTRO_SEC = 4.5;
   const thumbPath = opts.imagePath; // 1080×1080 branded image with stat + subtext
   const finalDuration = totalDuration + INTRO_SEC;
   const audioFadeOutStart = fadeOut + INTRO_SEC;

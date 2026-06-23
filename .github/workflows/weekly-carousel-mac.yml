@@ -1,0 +1,80 @@
+name: Weekly Carousel Mac (Sundays 11am Stockholm)
+
+# Runs scripts/weekly-ig-carousel.ts which finds the most recent set of
+# rendered comic panels, reframes the matching caption as a weekend recap,
+# and posts them as a 4-7 image IG carousel. Carousels get ~1.4× the reach
+# of single Reels per IG's algorithm preference.
+#
+# Dispatched by the Cloudflare Worker on Sunday 09:00 UTC (11:00 Stockholm CEST).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  carousel:
+    name: Post weekly carousel (Mac)
+    runs-on: [self-hosted, macOS, mrsabpata]
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Preserve gitignored cookies between runs (same reason as the daily
+          # cron — actions/checkout@v4 runs `git clean -ffdx` by default).
+          clean: false
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (only if missing)
+        timeout-minutes: 5
+        run: |
+          set -e
+          CACHE_DIR="$HOME/Library/Caches/ms-playwright"
+          NEED_INSTALL=0
+          if [ ! -d "$CACHE_DIR" ]; then NEED_INSTALL=1; fi
+          if [ ! "$(ls -d "$CACHE_DIR"/chromium-* 2>/dev/null | head -1)" ]; then NEED_INSTALL=1; fi
+          if [ ! "$(ls -d "$CACHE_DIR"/webkit-* 2>/dev/null | head -1)" ]; then NEED_INSTALL=1; fi
+          if [ "$NEED_INSTALL" -eq 1 ]; then
+            npx playwright install webkit chromium
+          else
+            echo "Browser binaries already present, skipping install"
+          fi
+
+      - name: Create .env.local
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_BUSINESS_ACCOUNT_ID: ${{ secrets.INSTAGRAM_BUSINESS_ACCOUNT_ID }}
+          TIMEZONE: Europe/Stockholm
+          CHANNEL_NAME: MrSabPata
+        run: |
+          python3 - << 'PYEOF'
+          import os
+          keys = ['GROQ_API_KEY','GEMINI_API_KEY','PIXABAY_API_KEY',
+                  'INSTAGRAM_ACCESS_TOKEN','INSTAGRAM_BUSINESS_ACCOUNT_ID',
+                  'TIMEZONE','CHANNEL_NAME']
+          with open('.env.local', 'w') as f:
+            for k in keys:
+              v = os.environ.get(k, '')
+              if v:
+                f.write(f'{k}={v}\n')
+          PYEOF
+
+      - name: Run weekly carousel
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+        run: npx tsx --env-file=.env.local scripts/weekly-ig-carousel.ts
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-carousel-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7
