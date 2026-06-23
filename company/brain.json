@@ -1,149 +1,90 @@
 {
-  "last_updated": "2026-05-11",
+  "last_updated": "2026-06-23",
+  "version": "3.0",
   "channel": {
-    "subscribers": 30800,
-    "views_28d": 564,
-    "watch_time_28d_hours": 18.4,
-    "avg_view_duration_seconds": 22,
-    "ctr": 3.5,
-    "return_viewers_pct": 0.9,
-    "subscribers_watching_pct": 7.5,
-    "monthly_sub_change": -45,
-    "mobile_viewers_pct": 68.9,
-    "bell_notifications_pct": 0.7,
-    "total_views_lifetime": 556535,
-    "video_count": 239
+    "name": "MrSabPata",
+    "channel_id": "UC34evP7dIhkq3RapgALY_lA",
+    "owner": "Imran",
+    "mission": "10 million subscribers through authentic immigrant content"
   },
+
+  "current_metrics": {
+    "subscribers": 30771,
+    "views_28d": 2131,
+    "watch_time_hours_28d": 19.2,
+    "avg_view_duration_pct": 10.3,
+    "ctr_pct": 3.5,
+    "sub_change_28d": -75,
+    "return_viewers_pct": 0.9,
+    "mobile_viewers_pct": 68.9
+  },
+
   "targets": {
     "month_3": {
       "subscribers": 35000,
       "views_28d": 10000,
-      "avg_view_duration_seconds": 180,
+      "avg_view_duration_min": "3:00",
       "return_viewers_pct": 15,
       "monthly_sub_change": 300
     },
-    "month_6": {
-      "subscribers": 50000,
-      "views_28d": 30000
-    },
-    "month_12": {
-      "subscribers": 100000
-    },
-    "final": {
-      "subscribers": 10000000
-    }
+    "month_6": { "subscribers": 50000, "views_28d": 30000 },
+    "month_12": { "subscribers": 100000 },
+    "final": { "subscribers": 10000000 }
   },
-  "current_focus": "Fix 0:22 avg view duration — hooks must deliver in first sentence",
-  "active_content_pillar": "1",
-  "next_video": {
-    "title": "Sweden visa interview — what they actually ask in 2026",
-    "pillar": "1",
-    "script_status": "ready",
-    "recording_brief_sent": false,
-    "publish_date": ""
-  },
+
   "content_pillars": {
-    "1": "Sweden Visa & Immigration",
-    "2": "Jobs & Career in Sweden",
-    "3": "Real Immigrant Stories",
-    "4": "Personal/Faith/Life"
+    "visa_immigration": { "label": "Sweden Visa & Immigration", "frequency": "2x/month long-form, 3x/week Shorts", "priority": 1 },
+    "jobs_career":      { "label": "Jobs & Career in Sweden",   "frequency": "1-2x/month long-form, 2x/week Shorts", "priority": 2 },
+    "immigrant_stories":{ "label": "Real Immigrant Stories",     "frequency": "1x/month long-form — REAL GUESTS ONLY", "priority": 3 },
+    "personal_faith":   { "label": "Personal / Faith / Life",    "frequency": "max 1x/month long-form", "priority": 4 }
   },
+
   "proven_winners": [
-    {
-      "title": "Sweden Visa Interview: Real Questions + Best Answers",
-      "views": 2178,
-      "comments": 71,
-      "likes": 53,
-      "pillar": "1"
-    },
-    {
-      "title": "How to Find a Job Abroad from Pakistan or India",
-      "views": 3883,
-      "likes": 45,
-      "like_ratio": 93.8,
-      "pillar": "2"
-    },
-    {
-      "title": "Common Job Interview Mistakes & How to Fix Them",
-      "views": 3504,
-      "likes": 38,
-      "like_ratio": 86.4,
-      "pillar": "2"
-    },
-    {
-      "title": "The Failure That Led Me Back to Faith (My Story)",
-      "views": 3750,
-      "likes": 41,
-      "like_ratio": 91.1,
-      "pillar": "4"
-    },
-    {
-      "title": "Rizwan's Move to Sweden: Visa Path, First 30 Days",
-      "views": 4293,
-      "likes": 40,
-      "like_ratio": 81.6,
-      "pillar": "3"
-    }
+    { "title": "Sweden Visa Interview: Real Questions + Best Answers", "views": 2178, "comments": 71, "likes": 53, "pillar": "visa_immigration" },
+    { "title": "How to Find a Job Abroad from Pakistan or India", "views": 3883, "likes": 45, "like_ratio": 93.8, "pillar": "jobs_career" },
+    { "title": "Common Job Interview Mistakes & How to Fix Them", "views": 3504, "likes": 38, "like_ratio": 86.4, "pillar": "jobs_career" },
+    { "title": "The Failure That Led Me Back to Faith (My Story)", "views": 3750, "likes": 41, "like_ratio": 91.1, "pillar": "personal_faith" },
+    { "title": "Rizwan's Move to Sweden: Visa Path, First 30 Days", "views": 4293, "likes": 40, "like_ratio": 81.6, "pillar": "immigrant_stories" }
   ],
-  "banned_content": [
+
+  "failed_experiments": [
+    { "type": "fictional_character", "name": "Ahmed",  "result": "4-14 views, copyright block",         "lesson": "No fictional characters. Ever. Imran only." },
+    { "type": "fictional_character", "name": "Fatima", "result": "Part of Ahmed cast — same disaster",   "lesson": "No fictional characters. Ever. Imran only." },
+    { "type": "fictional_character", "name": "Bilal",  "result": "Part of Ahmed cast — same disaster",   "lesson": "No fictional characters. Ever. Imran only." },
+    { "type": "product_review",      "title": "Oura Ring 4 Review", "views": 25, "lesson": "Off-niche content destroys algorithm trust" },
+    { "type": "chaotic_thumbnail",   "title": "Bina IELTS Visa Direct", "lesson": "News-channel thumbnails repel the audience" },
+    { "type": "ai_template_titles",  "example": "Title: Ahmed's Work Permit Worries.", "lesson": "Quality gate must catch template text before publish" }
+  ],
+
+  "banned_forever": [
+    "fictional AI characters (Ahmed/Fatima/Bilal or any other)",
     "product reviews",
-    "off-niche topics with no Sweden/Pakistan angle",
-    "chaotic news-channel thumbnails with red stamps and yellow urgent text",
-    "generic motivational content",
-    "anything that breaks the viewer's expectation of immigration/career content"
+    "generic motivation (no Sweden angle)",
+    "chaotic news thumbnails (stamps, clocks, yellow urgent text)",
+    "template text in published titles (Title:, Description:, [INSERT, {{, }})",
+    "content without Imran's face (Shorts especially)",
+    "posting gaps longer than 24 hours"
   ],
-  "active_series": [],
+
+  "quality_gate_status": "active",
+  "current_week_direction": "PAUSE-AND-REBUILD (2026-06-23): cron stopped, Quality Gate built, story-mode prompts disabled, Ahmed videos being archived. No publishing until Imran records first new Shorts in approved format (One Sweden Fact / Real Question / Breaking News / Long-form clip).",
+
   "last_performance_audit": {
-    "date": "2026-05-11",
-    "video_title": "Mr. Visa Guarantee 😂 | Sabko Visa Dilwaay Ga – No IELTS, No Degree!",
-    "ctr": 0,
-    "avg_view_duration": "0:00",
-    "return_viewers_pct": 0,
-    "diagnosis": "Performing within expected range.",
-    "next_action": ""
+    "date": "2026-06-23",
+    "method": "founder review of YouTube Studio + paste of full company audit doc",
+    "verdict": "Ahmed cast experiment failed catastrophically. Channel reverts to Imran-real-voice content."
   },
+
+  "next_video": {
+    "title": "",
+    "pillar": "",
+    "status": "awaiting_imran_recording",
+    "format_required": "long-form with Imran on camera OR Short with Imran on camera (no fictional cast)"
+  },
+
   "weekly_memo_log": [],
-  "decisions_log": [],
-  "recent_videos": [
-    {
-      "title": "Mr. Visa Guarantee 😂 | Sabko Visa Dilwaay Ga – No IELTS, No Degree!",
-      "views": 2280,
-      "likes": 15,
-      "comments": 2,
-      "duration_seconds": 291,
-      "published_at": "2025-11-03"
-    },
-    {
-      "title": "From Karachi 🇵🇰 to Stockholm 🇸🇪 | Ahsan Ayaz on Angular, Tech Jobs in Sweden &amp; Life Abroad",
-      "views": 1889,
-      "likes": 8,
-      "comments": 2,
-      "duration_seconds": 5253,
-      "published_at": "2025-09-11"
-    },
-    {
-      "title": "Love Talking? Build a Career in IT Sales &amp; Consulting | IT Career Ep. 4",
-      "views": 2021,
-      "likes": 9,
-      "comments": 1,
-      "duration_seconds": 583,
-      "published_at": "2025-09-05"
-    },
-    {
-      "title": "Born to Organize? Project Manager May Be Your IT Career | Ep. 3",
-      "views": 2150,
-      "likes": 4,
-      "comments": 2,
-      "duration_seconds": 392,
-      "published_at": "2025-09-03"
-    },
-    {
-      "title": "Hate Coding? IT Support &amp; Networking Careers Explained | IT Career Ep. 2",
-      "views": 2000,
-      "likes": 6,
-      "comments": 0,
-      "duration_seconds": 462,
-      "published_at": "2025-09-01"
-    }
+  "decisions_log": [
+    { "date": "2026-06-23", "decision": "Permanently retire Ahmed/Fatima/Bilal cast. Pivot to Imran-real-voice. Build Quality Gate. Source: PART 1 + PART 7 of docs/COMPANY-PROMPT.md.",
+      "owner": "Imran (founder/CEO)" }
   ]
 }

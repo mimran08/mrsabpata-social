@@ -4,6 +4,7 @@ import { postViaTikTok } from "../platforms/tiktok-browser.js";
 import { uploadYouTubeShort as uploadYouTubeShortAPI } from "../platforms/youtube-api.js";
 import { uploadYouTubeShort as uploadYouTubeShortBrowser } from "../platforms/youtube-browser.js";
 import { postViaInstagram, postViaInstagramStory, commentOnLatestReel } from "../platforms/instagram-browser.js";
+import { assertPublishable } from "../gates/quality_gate.js";
 import { generatePostImage, generateTopicThumbnail } from "../utils/image-gen.js";
 import { generateAnimatedVideo } from "../utils/video-gen-animated.js";
 import { generateLongVideo, generateBackgroundPool } from "../utils/video-gen-long.js";
@@ -802,6 +803,20 @@ export async function postDailyContent(session: "morning" | "evening"): Promise<
   done.x = true;
   void postViaBrowser; void postTweet;
   log(ROLE, "info", "⏭ X: disabled (2 followers, 0 engagement)");
+
+  // ── Quality Gate (mandatory pre-publish check) ──────────────────────────────
+  // Per docs/COMPANY-PROMPT.md PART 5: blocks any content that contains the
+  // Ahmed/Fatima/Bilal cast, raw template text ("Title:", "{{"), off-niche
+  // tags, or other failure-mode patterns from the company's post-mortem.
+  // If anything fails, the cron throws BEFORE any platform call so we can't
+  // ship bad content again.
+  await assertPublishable({
+    type: "short",
+    title: posts.youtube || posts.theme || "",
+    description: posts.instagram || "",
+    pillar: posts.pillar,
+    hasRealFaceThumbnail: false,  // current pipeline = AI-generated thumbs; will flip true once Imran's recordings flow in
+  }, (level, msg) => log(ROLE, level, msg));
 
   // ── TikTok ───────────────────────────────────────────────────────────────────
   if (!done.tiktok) {
